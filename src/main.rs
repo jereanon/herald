@@ -211,11 +211,22 @@ async fn main() {
     // --- Approval channel (shared between ApprovalHook and WS handler) ---
     let (approval_tx, approval_rx) = tokio::sync::mpsc::channel::<hooks::approval::ApprovalRequest>(32);
 
+    // --- Discord config for approval routing ---
+    let discord_approval_config = config.discord.token.as_ref()
+        .filter(|t| !t.is_empty() && !t.starts_with("${"))
+        .map(|t| agentic_rs::tools::discord::DiscordConfig::new(t));
+
     // --- Hooks ---
     let mut hook_registry = HookRegistry::new();
     hook_registry.register(Arc::new(hooks::logging::LoggingHook::new()));
     hook_registry.register(Arc::new(hooks::working_directory::WorkingDirectoryHook::new()));
-    hook_registry.register(Arc::new(hooks::approval::ApprovalHook::new(approval_tx.clone())));
+    let approval_hook = hooks::approval::ApprovalHook::new(approval_tx.clone());
+    let approval_hook = if let Some(ref dc) = discord_approval_config {
+        approval_hook.with_discord(dc.clone())
+    } else {
+        approval_hook
+    };
+    hook_registry.register(Arc::new(approval_hook));
 
     // --- Metrics ---
     let _metrics = if config.metrics.enabled {
@@ -316,7 +327,13 @@ async fn main() {
             let mut agent_hook_registry = HookRegistry::new();
             agent_hook_registry.register(Arc::new(hooks::logging::LoggingHook::new()));
             agent_hook_registry.register(Arc::new(hooks::working_directory::WorkingDirectoryHook::new()));
-            agent_hook_registry.register(Arc::new(hooks::approval::ApprovalHook::new(approval_tx.clone())));
+            let agent_approval_hook = hooks::approval::ApprovalHook::new(approval_tx.clone());
+            let agent_approval_hook = if let Some(ref dc) = discord_approval_config {
+                agent_approval_hook.with_discord(dc.clone())
+            } else {
+                agent_approval_hook
+            };
+            agent_hook_registry.register(Arc::new(agent_approval_hook));
 
             let mut agent_rt = Runtime::new(
                 provider_for_agent,
