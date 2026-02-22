@@ -11,24 +11,24 @@ use std::sync::Arc;
 
 use clap::Parser;
 
-use agentic_rs::channels::gateway::{GatewayChannel, GatewayConfig as LibGatewayConfig};
-use agentic_rs::context::{CharEstimator, ContextBudget};
-use agentic_rs::cron::service::CronService;
-use agentic_rs::cron::store::FileCronStore;
-use agentic_rs::cron::types::CronPayload;
-use agentic_rs::message::Message;
-use agentic_rs::namespace::Namespace;
-use agentic_rs::hook::HookRegistry;
-use agentic_rs::metrics::MetricsCollector;
-use agentic_rs::policy::PolicyRegistry;
-use agentic_rs::provider::Provider;
-use agentic_rs::providers::claude::ClaudeProvider;
-use agentic_rs::providers::openai::OpenAIProvider;
-use agentic_rs::runtime::{Runtime, RuntimeConfig};
-use agentic_rs::scheduler::Scheduler;
-use agentic_rs::store::InMemoryStore;
-use agentic_rs::stores::file::FileStore;
-use agentic_rs::tool::ToolRegistry;
+use orra::channels::gateway::{GatewayChannel, GatewayConfig as LibGatewayConfig};
+use orra::context::{CharEstimator, ContextBudget};
+use orra::cron::service::CronService;
+use orra::cron::store::FileCronStore;
+use orra::cron::types::CronPayload;
+use orra::message::Message;
+use orra::namespace::Namespace;
+use orra::hook::HookRegistry;
+use orra::metrics::MetricsCollector;
+use orra::policy::PolicyRegistry;
+use orra::provider::Provider;
+use orra::providers::claude::ClaudeProvider;
+use orra::providers::openai::OpenAIProvider;
+use orra::runtime::{Runtime, RuntimeConfig};
+use orra::scheduler::Scheduler;
+use orra::store::InMemoryStore;
+use orra::stores::file::FileStore;
+use orra::tool::ToolRegistry;
 
 use crate::config::Config;
 use crate::provider_wrapper::DynamicProvider;
@@ -144,7 +144,7 @@ async fn main() {
     };
 
     // --- Session store ---
-    let store: Arc<dyn agentic_rs::store::SessionStore> = match config.sessions.store.as_str() {
+    let store: Arc<dyn orra::store::SessionStore> = match config.sessions.store.as_str() {
         "file" => {
             eprintln!("[init] session store: file ({})", config.sessions.path.display());
             Arc::new(FileStore::new(&config.sessions.path))
@@ -180,14 +180,14 @@ async fn main() {
         let args: Vec<&str> = server.args.iter().map(|s| s.as_str()).collect();
         let env: Vec<(&str, &str)> = server.env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
 
-        match agentic_rs::mcp::transport::StdioTransport::spawn_with_env(
+        match orra::mcp::transport::StdioTransport::spawn_with_env(
             &server.command,
             &args,
             &env,
         ).await {
             Ok(transport) => {
                 let transport = std::sync::Arc::new(transport);
-                match agentic_rs::mcp::register_mcp_tools(&mut tool_registry, transport).await {
+                match orra::mcp::register_mcp_tools(&mut tool_registry, transport).await {
                     Ok(client) => {
                         eprintln!("[init] mcp server '{}': connected", server.name);
                         _mcp_clients.push(client);
@@ -214,7 +214,7 @@ async fn main() {
     // --- Discord config for approval routing ---
     let discord_approval_config = config.discord.token.as_ref()
         .filter(|t| !t.is_empty() && !t.starts_with("${"))
-        .map(|t| agentic_rs::tools::discord::DiscordConfig::new(t));
+        .map(|t| orra::tools::discord::DiscordConfig::new(t));
 
     // --- Hooks ---
     let mut hook_registry = HookRegistry::new();
@@ -232,7 +232,7 @@ async fn main() {
     let _metrics = if config.metrics.enabled {
         let mut collector = MetricsCollector::new();
         if config.metrics.log_metrics {
-            collector.add_sink(Arc::new(agentic_rs::metrics::LoggingSink));
+            collector.add_sink(Arc::new(orra::metrics::LoggingSink));
         }
         eprintln!("[init] metrics: enabled");
         Some(Arc::new(collector))
@@ -316,7 +316,7 @@ async fn main() {
             // Register inter-agent delegation tool
             if enable_delegation {
                 agent_tool_registry.register(Box::new(
-                    agentic_rs::tools::delegation::DelegateToAgentTool::new(
+                    orra::tools::delegation::DelegateToAgentTool::new(
                         runtimes.clone(),
                         agent_profile.name.clone(),
                     ),
@@ -366,7 +366,7 @@ async fn main() {
         let scheduler = Scheduler::new();
         for job in &config.scheduler.jobs {
             let msg = job.message.clone();
-            let cb: agentic_rs::scheduler::JobCallback = Arc::new(move || {
+            let cb: orra::scheduler::JobCallback = Arc::new(move || {
                 let m = msg.clone();
                 tokio::spawn(async move {
                     eprintln!("[scheduler] triggered: {}", m);
@@ -395,7 +395,7 @@ async fn main() {
         // Wire up the callback that runs when a cron job fires
         let rt = runtime.clone();
         let events_tx = session_events_tx.clone();
-        let cron_callback: agentic_rs::cron::service::CronCallback =
+        let cron_callback: orra::cron::service::CronCallback =
             Arc::new(move |job| {
                 let rt = rt.clone();
                 let events_tx = events_tx.clone();
@@ -518,7 +518,7 @@ async fn main() {
     let discord_api = Arc::new(tokio::sync::RwLock::new(
         config.discord.token.as_ref()
             .filter(|t| !t.is_empty() && !t.starts_with("${"))
-            .map(|t| agentic_rs::tools::discord::DiscordConfig::new(t)),
+            .map(|t| orra::tools::discord::DiscordConfig::new(t)),
     ));
 
     let app_state = web::AppState {

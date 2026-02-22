@@ -1,6 +1,6 @@
-//! Re-exports the Claude Code tool from the agentic-rs library.
+//! Re-exports the Claude Code tool from the orra library.
 //!
 //! Configuration is handled in this crate's config module; registration
-//! wires it up via `agentic_rs::tools::claude_code::register_tools`.
+//! wires it up via `orra::tools::claude_code::register_tools`.
 
-pub use agentic_rs::tools::claude_code::{ClaudeCodeConfig, ClaudeCodeTool, ClaudeCodeResumeTool};
+pub use orra::tools::claude_code::{ClaudeCodeConfig, ClaudeCodeTool, ClaudeCodeResumeTool};

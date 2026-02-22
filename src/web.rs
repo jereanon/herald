@@ -14,12 +14,12 @@ use tokio::sync::{broadcast, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
 
-use agentic_rs::channels::gateway::GatewayChannel;
-use agentic_rs::context::CharEstimator;
-use agentic_rs::cron::CronService;
-use agentic_rs::runtime::Runtime;
-use agentic_rs::store::SessionStore;
-use agentic_rs::tools::discord::DiscordConfig as DiscordApiConfig;
+use orra::channels::gateway::GatewayChannel;
+use orra::context::CharEstimator;
+use orra::cron::CronService;
+use orra::runtime::Runtime;
+use orra::store::SessionStore;
+use orra::tools::discord::DiscordConfig as DiscordApiConfig;
 
 use crate::config::{AgentProfileConfig, GatewayConfig};
 use crate::discord_manager::DiscordManager;

@@ -6,12 +6,12 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use agentic_rs::channels::gateway::{ChatRequest, ErrorResponse};
-use agentic_rs::cron::types::*;
-use agentic_rs::namespace::Namespace;
-use agentic_rs::provider::Provider;
-use agentic_rs::providers::claude::ClaudeProvider;
-use agentic_rs::providers::openai::OpenAIProvider;
+use orra::channels::gateway::{ChatRequest, ErrorResponse};
+use orra::cron::types::*;
+use orra::namespace::Namespace;
+use orra::provider::Provider;
+use orra::providers::claude::ClaudeProvider;
+use orra::providers::openai::OpenAIProvider;
 
 use crate::config;
 
@@ -576,7 +576,7 @@ pub async fn update_discord(
         // Update the discord API config for channel listing
         {
             let mut api = state.discord_api.write().await;
-            *api = Some(agentic_rs::tools::discord::DiscordConfig::new(&tok));
+            *api = Some(orra::tools::discord::DiscordConfig::new(&tok));
         }
 
         // Connect (or reconnect) to Discord
@@ -1570,7 +1570,7 @@ fn parse_schedule_from_json(v: &serde_json::Value) -> Result<CronScheduleType, S
             let expr = v.get("expression").and_then(|v| v.as_str())
                 .ok_or("missing schedule.expression")?;
             // Validate
-            agentic_rs::scheduler::CronSchedule::parse(expr)
+            orra::scheduler::CronSchedule::parse(expr)
                 .map_err(|e| format!("invalid cron: {}", e))?;
             Ok(CronScheduleType::Cron { expression: expr.into() })
         }

@@ -7,11 +7,11 @@ use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use tokio::sync::{mpsc, oneshot};
 
-use agentic_rs::agent::detect_agent_mention;
-use agentic_rs::channels::gateway::{ChatUsage, WsMessage};
-use agentic_rs::message::Message;
-use agentic_rs::namespace::Namespace;
-use agentic_rs::runtime::RuntimeStreamEvent;
+use orra::agent::detect_agent_mention;
+use orra::channels::gateway::{ChatUsage, WsMessage};
+use orra::message::Message;
+use orra::namespace::Namespace;
+use orra::runtime::RuntimeStreamEvent;
 
 use super::handlers::extract_bearer;
 use super::AppState;
@@ -269,7 +269,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
 async fn resolve_runtime(
     state: &AppState,
     agent: Option<&str>,
-) -> (Arc<agentic_rs::runtime::Runtime<agentic_rs::context::CharEstimator>>, Option<String>) {
+) -> (Arc<orra::runtime::Runtime<orra::context::CharEstimator>>, Option<String>) {
     let runtimes = state.runtimes.read().await;
 
     if runtimes.is_empty() {

@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 /// Re-export AgentProfile from the library as AgentProfileConfig for
 /// backward compatibility within this crate.
-pub use agentic_rs::agent::AgentProfile as AgentProfileConfig;
+pub use orra::agent::AgentProfile as AgentProfileConfig;
 
 // ---------------------------------------------------------------------------
 // Top-level config
@@ -60,7 +60,7 @@ impl Config {
     /// If `agents` is populated, use it. Otherwise, convert the legacy
     /// single `agent` config into one profile.
     pub fn resolved_agents(&self) -> Vec<AgentProfileConfig> {
-        agentic_rs::agent::resolve_agents(
+        orra::agent::resolve_agents(
             &self.agents,
             Some(&self.agent.name),
             Some(&self.agent.personality),

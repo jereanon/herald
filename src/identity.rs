@@ -1,4 +1,4 @@
-use agentic_rs::agent::AgentProfile;
+use orra::agent::AgentProfile;
 
 use crate::config::Config;
 

@@ -8,12 +8,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use agentic_rs::channels::discord::{DiscordChannel, DiscordChannelConfig, MessageFilter};
-use agentic_rs::channels::ChannelAdapter;
-use agentic_rs::context::CharEstimator;
-use agentic_rs::routing::{Router, RoutingRule};
-use agentic_rs::runtime::Runtime;
-use agentic_rs::tools::discord::DiscordConfig;
+use orra::channels::discord::{DiscordChannel, DiscordChannelConfig, MessageFilter};
+use orra::channels::ChannelAdapter;
+use orra::context::CharEstimator;
+use orra::routing::{Router, RoutingRule};
+use orra::runtime::Runtime;
+use orra::tools::discord::DiscordConfig;
 
 /// Current state of the Discord connection.
 #[derive(Debug, Clone)]
@@ -137,7 +137,7 @@ impl DiscordManager {
         let handle = tokio::spawn(async move {
             if has_agents {
                 let mut router = Router::new(RoutingRule::MetadataKey("agent".into()));
-                router.add_channel("discord", channel_for_task as Arc<dyn agentic_rs::channels::Channel>);
+                router.add_channel("discord", channel_for_task as Arc<dyn orra::channels::Channel>);
                 let default_key = default_agent_name.to_lowercase();
                 if let Err(e) = router.run(&runtimes_snapshot, Some(&default_key)).await {
                     eprintln!("[discord] Router error: {}", e);
