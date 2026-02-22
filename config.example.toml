@@ -20,6 +20,10 @@
 #   - Discord: disabled (web-only mode)
 #   - Gateway: auto-enabled when no Discord token is set
 
+# Base data directory for all persistent data (sessions, cron jobs, etc.).
+# Relative paths for sessions and cron are resolved against this directory.
+# data_dir = "./data"
+
 # -----------------------------------------------------------------------------
 # Agent identity
 # -----------------------------------------------------------------------------
@@ -116,7 +120,7 @@ enabled = true
 # "file"   = persist to disk (survives restarts)
 # "memory" = in-memory only (lost on restart)
 store = "file"
-path = "./data/sessions"
+path = "sessions"
 
 # -----------------------------------------------------------------------------
 # Context window management

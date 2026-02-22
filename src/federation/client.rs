@@ -1,6 +1,9 @@
 //! Federation HTTP client for communicating with peer instances.
 
-use orra::channels::federation::{HealthStatus, RelayRequest, RelayResponse, RemoteAgentInfo};
+use orra::channels::federation::{
+    FederatedSessionDetail, FederatedSessionInfo, HealthStatus, RelayRequest, RelayResponse,
+    RemoteAgentInfo, SessionChatRequest, SessionChatResponse,
+};
 
 /// Client for communicating with a single federation peer.
 ///
@@ -94,6 +97,96 @@ impl PeerClient {
             .map_err(|e| PeerClientError::Deserialize(e.to_string()))?;
 
         Ok(status.status == "ok")
+    }
+
+    /// List sessions available on a peer.
+    pub async fn list_sessions(
+        base_url: &str,
+        shared_secret: &str,
+    ) -> Result<Vec<FederatedSessionInfo>, PeerClientError> {
+        let url = format!(
+            "{}/api/federation/sessions",
+            base_url.trim_end_matches('/')
+        );
+
+        let resp = reqwest::Client::new()
+            .get(&url)
+            .bearer_auth(shared_secret)
+            .timeout(std::time::Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| PeerClientError::Request(e.to_string()))?;
+
+        if !resp.status().is_success() {
+            return Err(PeerClientError::Status(resp.status().as_u16()));
+        }
+
+        resp.json()
+            .await
+            .map_err(|e| PeerClientError::Deserialize(e.to_string()))
+    }
+
+    /// Get the full detail of a remote session.
+    pub async fn get_session(
+        base_url: &str,
+        shared_secret: &str,
+        namespace: &str,
+    ) -> Result<FederatedSessionDetail, PeerClientError> {
+        let url = format!(
+            "{}/api/federation/sessions/detail?namespace={}",
+            base_url.trim_end_matches('/'),
+            urlencoding::encode(namespace),
+        );
+
+        let resp = reqwest::Client::new()
+            .get(&url)
+            .bearer_auth(shared_secret)
+            .timeout(std::time::Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(|e| PeerClientError::Request(e.to_string()))?;
+
+        if !resp.status().is_success() {
+            return Err(PeerClientError::Status(resp.status().as_u16()));
+        }
+
+        resp.json()
+            .await
+            .map_err(|e| PeerClientError::Deserialize(e.to_string()))
+    }
+
+    /// Send a chat message to a remote session (non-streaming).
+    pub async fn chat_in_session(
+        base_url: &str,
+        shared_secret: &str,
+        request: &SessionChatRequest,
+    ) -> Result<SessionChatResponse, PeerClientError> {
+        let url = format!(
+            "{}/api/federation/sessions/chat",
+            base_url.trim_end_matches('/')
+        );
+
+        let resp = reqwest::Client::new()
+            .post(&url)
+            .bearer_auth(shared_secret)
+            .json(request)
+            .timeout(std::time::Duration::from_secs(120))
+            .send()
+            .await
+            .map_err(|e| PeerClientError::Request(e.to_string()))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(PeerClientError::Relay {
+                status,
+                message: body,
+            });
+        }
+
+        resp.json()
+            .await
+            .map_err(|e| PeerClientError::Deserialize(e.to_string()))
     }
 }
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agentic Assistant</title>
+    <title>Herald</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
     <style>
         :root {
@@ -136,6 +136,18 @@
         .session-item:hover .session-action-btn { opacity: 1; }
         .session-item .session-action-btn:hover { color: var(--accent); }
         .session-item .session-action-btn.danger:hover { color: var(--danger); }
+
+        .session-instance-badge {
+            display: inline-block;
+            font-size: 10px;
+            padding: 1px 6px;
+            border-radius: 8px;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            margin-left: 6px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
 
         .session-rename-input {
             background: var(--bg-primary);
@@ -1554,26 +1566,35 @@
             <!-- Federation section -->
             <div class="settings-section" data-tab="federation">
                 <h3>Federation</h3>
-                <div style="color:var(--text-secondary);margin-bottom:16px;line-height:1.5">
-                    <p><strong>Coming soon</strong> &mdash; Federation allows connecting multiple
-                    herald instances together so agents can collaborate across servers.</p>
-                    <p style="margin-top:12px">With federation, you'll be able to:</p>
-                    <ul style="margin:8px 0 0 20px;list-style:disc">
-                        <li>Discover agents on remote instances</li>
-                        <li>Delegate tasks to agents on other servers</li>
-                        <li>Share capabilities across your deployment</li>
-                    </ul>
+                <div id="federationDisabled" style="color:var(--text-secondary);line-height:1.5;display:none">
+                    <p>Federation is <strong>disabled</strong>. Enable it in your config file to connect
+                    multiple herald instances together.</p>
+                    <pre style="background:var(--bg-secondary);padding:12px;border-radius:8px;margin-top:12px;font-size:12px;overflow-x:auto">[federation]
+enabled = true
+instance_name = "my-herald"
+shared_secret = "your-shared-secret"
+mdns_enabled = true</pre>
                 </div>
-                <div class="settings-field">
-                    <label for="fedPeerUrl">Peer URL</label>
-                    <input type="text" id="fedPeerUrl" placeholder="https://other-instance:8080" disabled>
-                </div>
-                <div class="settings-field">
-                    <label for="fedApiKey">Peer API Key</label>
-                    <input type="password" id="fedApiKey" placeholder="Shared secret or API key" disabled>
-                </div>
-                <div class="settings-actions">
-                    <button class="settings-btn" disabled title="Not yet implemented">Add Peer</button>
+                <div id="federationEnabled" style="display:none">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+                        <div style="display:flex;align-items:center;gap:8px">
+                            <span style="width:8px;height:8px;border-radius:50%;background:#4caf50;display:inline-block"></span>
+                            <span style="font-weight:600" id="fedInstanceName">—</span>
+                        </div>
+                        <span class="cron-status-badge active" id="fedMdnsBadge" style="display:none">mDNS</span>
+                    </div>
+
+                    <!-- Peers -->
+                    <h4 style="font-size:13px;font-weight:600;margin:20px 0 8px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">Peers</h4>
+                    <div id="fedPeerList" style="display:flex;flex-direction:column;gap:8px">
+                        <div style="color:var(--text-secondary);font-size:13px;font-style:italic;padding:8px 0">No peers discovered yet.</div>
+                    </div>
+
+                    <!-- Remote Agents -->
+                    <h4 style="font-size:13px;font-weight:600;margin:20px 0 8px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">Remote Agents</h4>
+                    <div id="fedRemoteAgentList" style="display:flex;flex-direction:column;gap:8px">
+                        <div style="color:var(--text-secondary);font-size:13px;font-style:italic;padding:8px 0">No remote agents available.</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1665,6 +1686,7 @@
 
         let ws = null;
         let currentNamespace = null;
+        let currentInstance = null;
         let isStreaming = false;
         let streamingElement = null;
         let streamingText = '';
@@ -1817,6 +1839,7 @@
                 };
                 if (selectedModel) msg.model = selectedModel;
                 if (selectedAgent) msg.agent = selectedAgent;
+                if (currentInstance) msg.instance = currentInstance;
                 ws.send(JSON.stringify(msg));
             } else {
                 // Fallback to REST API
@@ -2101,24 +2124,33 @@
 
             sessions.forEach(s => {
                 const div = document.createElement('div');
-                div.className = `session-item${s.namespace === currentNamespace ? ' active' : ''}`;
+                const isActive = s.namespace === currentNamespace && (s.remote ? s.instance === currentInstance : !currentInstance);
+                div.className = `session-item${isActive ? ' active' : ''}`;
 
                 const label = s.name || s.namespace.replace('web:', '').substring(0, 8) + '...';
                 const safeNs = escapeHtml(s.namespace);
+                const safeInstance = s.instance ? escapeHtml(s.instance) : '';
+                const instanceBadge = s.remote && s.instance ? `<span class="session-instance-badge">${escapeHtml(s.instance)}</span>` : '';
 
-                div.innerHTML = `
-                    <span class="session-label" onclick="loadSession('${safeNs}')" ondblclick="event.stopPropagation(); startRename('${safeNs}', this)" title="${escapeHtml(s.name || s.namespace)}">${escapeHtml(label)}</span>
-                    <span class="session-actions">
-                        <button class="session-action-btn" onclick="event.stopPropagation(); startRename('${safeNs}')" title="Rename">&#9998;</button>
-                        <button class="session-action-btn danger" onclick="event.stopPropagation(); deleteSession('${safeNs}')" title="Delete">&times;</button>
-                    </span>
-                `;
+                if (s.remote) {
+                    div.innerHTML = `
+                        <span class="session-label" onclick="loadSession('${safeNs}', '${safeInstance}')" title="${escapeHtml(s.name || s.namespace)} (${safeInstance})">${escapeHtml(label)}${instanceBadge}</span>
+                    `;
+                } else {
+                    div.innerHTML = `
+                        <span class="session-label" onclick="loadSession('${safeNs}')" ondblclick="event.stopPropagation(); startRename('${safeNs}', this)" title="${escapeHtml(s.name || s.namespace)}">${escapeHtml(label)}${instanceBadge}</span>
+                        <span class="session-actions">
+                            <button class="session-action-btn" onclick="event.stopPropagation(); startRename('${safeNs}')" title="Rename">&#9998;</button>
+                            <button class="session-action-btn danger" onclick="event.stopPropagation(); deleteSession('${safeNs}')" title="Delete">&times;</button>
+                        </span>
+                    `;
+                }
 
                 list.appendChild(div);
             });
         }
 
-        async function loadSession(namespace) {
+        async function loadSession(namespace, instance = null) {
             // Close sidebar on mobile
             closeSidebar();
 
@@ -2126,11 +2158,15 @@
                 const headers = {};
                 if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-                const resp = await fetch(`/api/sessions/${encodeURIComponent(namespace)}`, { headers });
+                let url = `/api/sessions/${encodeURIComponent(namespace)}`;
+                if (instance) url += `?instance=${encodeURIComponent(instance)}`;
+
+                const resp = await fetch(url, { headers });
                 if (!resp.ok) return;
 
                 const data = await resp.json();
                 currentNamespace = namespace;
+                currentInstance = instance;
 
                 // Clear and re-render messages
                 const container = document.getElementById('messages');
@@ -2164,13 +2200,20 @@
                 });
 
                 // Find session name and working directory from sidebar data
-                const cachedSession = cachedSessions.find(s => s.namespace === namespace);
+                const cachedSession = cachedSessions.find(s => s.namespace === namespace && (!instance || s.instance === instance));
                 const sessionName = cachedSession?.name;
+                const titleSuffix = instance ? ` (${instance})` : '';
                 document.getElementById('chatTitle').textContent =
-                    sessionName || namespace.replace('web:', '').substring(0, 12) + '...';
+                    (sessionName || namespace.replace('web:', '').substring(0, 12) + '...') + titleSuffix;
 
-                updateWorkingDirBadge(cachedSession?.working_directory || null);
-                updateChaosToggle(cachedSession?.chaos_mode || false);
+                // Hide working dir / chaos for remote sessions
+                if (instance) {
+                    updateWorkingDirBadge(null);
+                    updateChaosToggle(false);
+                } else {
+                    updateWorkingDirBadge(cachedSession?.working_directory || null);
+                    updateChaosToggle(cachedSession?.chaos_mode || false);
+                }
 
                 loadSessions();
             } catch (e) {
@@ -2315,6 +2358,7 @@
 
         function newChat() {
             currentNamespace = null;
+            currentInstance = null;
             const container = document.getElementById('messages');
             container.innerHTML = '<div class="empty-state" id="emptyState">Send a message to start a conversation</div>';
             document.getElementById('chatTitle').textContent = 'New Chat';
@@ -2723,6 +2767,7 @@
             if (tabName === 'discord') loadSettingsData();
             if (tabName === 'scheduled') { loadChannels().then(() => loadCronJobs()); }
             if (tabName === 'agents') loadAgents();
+            if (tabName === 'federation') loadFederationData();
         }
 
         function restoreSettingsTab() {
@@ -2730,7 +2775,7 @@
             const tabs = document.querySelectorAll('.settings-tab');
             tabs.forEach(t => {
                 const name = t.textContent.trim().toLowerCase();
-                const tabMap = { 'general': 'general', 'agents': 'agents', 'discord': 'discord', 'tasks': 'scheduled' };
+                const tabMap = { 'general': 'general', 'agents': 'agents', 'discord': 'discord', 'tasks': 'scheduled', 'federation': 'federation' };
                 if (tabMap[name] === saved) {
                     switchSettingsTab(saved, t);
                 }
@@ -2947,6 +2992,97 @@
                     if (a.name === prevValue) opt.selected = true;
                     select.appendChild(opt);
                 });
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+        // Federation
+        // ---------------------------------------------------------------------------
+
+        async function loadFederationData() {
+            try {
+                const headers = {};
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch('/api/settings', { headers });
+                if (!resp.ok) return;
+                const data = await resp.json();
+                const fed = data.federation;
+
+                if (!fed || !fed.enabled) {
+                    document.getElementById('federationDisabled').style.display = 'block';
+                    document.getElementById('federationEnabled').style.display = 'none';
+                    return;
+                }
+
+                document.getElementById('federationDisabled').style.display = 'none';
+                document.getElementById('federationEnabled').style.display = 'block';
+
+                // Instance name
+                document.getElementById('fedInstanceName').textContent = fed.instance_name || '—';
+
+                // mDNS badge
+                const mdnsBadge = document.getElementById('fedMdnsBadge');
+                if (fed.mdns_enabled) {
+                    mdnsBadge.style.display = 'inline-block';
+                } else {
+                    mdnsBadge.style.display = 'none';
+                }
+
+                // Peers list
+                const peerList = document.getElementById('fedPeerList');
+                const peers = fed.peers || [];
+                if (peers.length === 0) {
+                    peerList.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;font-style:italic;padding:8px 0">No peers discovered yet.</div>';
+                } else {
+                    peerList.innerHTML = '';
+                    peers.forEach(peer => {
+                        const healthColor = peer.health === 'Healthy' ? '#4caf50' :
+                                           peer.health === 'Unhealthy' ? '#f44336' : '#ff9800';
+                        const healthLabel = peer.health === 'Healthy' ? 'Healthy' :
+                                           peer.health === 'Unhealthy' ? 'Unhealthy' : 'Unknown';
+                        const agentNames = (peer.agents || []).join(', ') || 'none discovered';
+                        const sourceBadge = peer.source === 'Mdns' ? '<span class="cron-status-badge active" style="margin-left:6px;font-size:10px">mDNS</span>' : '';
+
+                        const div = document.createElement('div');
+                        div.style.cssText = 'background:var(--bg-secondary);border-radius:8px;padding:12px;';
+                        div.innerHTML = `
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                                <span style="width:8px;height:8px;border-radius:50%;background:${healthColor};display:inline-block;flex-shrink:0"></span>
+                                <span style="font-weight:600;font-size:14px">${escapeHtml(peer.name)}</span>
+                                <span class="cron-status-badge" style="background:${healthColor}20;color:${healthColor}">${healthLabel}</span>
+                                ${sourceBadge}
+                            </div>
+                            <div style="font-size:12px;color:var(--text-secondary);margin-left:16px">${escapeHtml(peer.url)}</div>
+                            <div style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 16px">Agents: ${escapeHtml(agentNames)}</div>
+                        `;
+                        peerList.appendChild(div);
+                    });
+                }
+
+                // Remote agents list
+                const agentList = document.getElementById('fedRemoteAgentList');
+                const remoteAgents = fed.remote_agents || [];
+                if (remoteAgents.length === 0) {
+                    agentList.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;font-style:italic;padding:8px 0">No remote agents available.</div>';
+                } else {
+                    agentList.innerHTML = '';
+                    remoteAgents.forEach(agent => {
+                        const div = document.createElement('div');
+                        div.className = 'cron-job';
+                        div.innerHTML = `
+                            <div class="cron-job-header">
+                                <span class="cron-job-name">${escapeHtml(agent.name)}
+                                    <span class="cron-status-badge active" style="margin-left:6px">${escapeHtml(agent.instance)}</span>
+                                </span>
+                            </div>
+                            <div class="cron-job-detail">${escapeHtml(agent.personality || '')}${agent.model ? ' &middot; ' + escapeHtml(agent.model) : ''}</div>
+                        `;
+                        agentList.appendChild(div);
+                    });
+                }
             } catch (e) {
                 // Silently fail
             }
@@ -3819,6 +3955,22 @@
                 connectWebSocket();
                 await loadSessions();
                 loadAgentSelector();
+
+                // Set page title to "Herald - {instance_name}"
+                try {
+                    const headers = {};
+                    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+                    const settingsResp = await fetch('/api/settings', { headers });
+                    if (settingsResp.ok) {
+                        const settings = await settingsResp.json();
+                        const instanceName = settings.federation?.instance_name;
+                        if (instanceName) {
+                            const displayName = instanceName.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                            document.title = `Herald - ${displayName}`;
+                        }
+                    }
+                } catch (e) { /* keep default title */ }
+
                 // Auto-select the most recent session if one exists
                 if (cachedSessions.length > 0) {
                     loadSession(cachedSessions[0].namespace);

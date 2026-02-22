@@ -12,6 +12,11 @@ pub use orra::agent::AgentProfile as AgentProfileConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
+    /// Base data directory for all persistent data (sessions, cron, etc.).
+    /// Session and cron paths are resolved relative to this directory
+    /// unless they are absolute paths.
+    #[serde(default = "default_data_dir")]
+    pub data_dir: PathBuf,
     /// Legacy single-agent config (backward compat). Prefer `agents`.
     #[serde(default)]
     pub agent: AgentConfig,
@@ -46,7 +51,31 @@ pub struct Config {
     pub federation: FederationConfig,
 }
 
+fn default_data_dir() -> PathBuf {
+    PathBuf::from("./data")
+}
+
 impl Config {
+    /// Resolve the sessions path. If `sessions.path` is relative, it's
+    /// resolved against `data_dir`. If absolute, used as-is.
+    pub fn sessions_path(&self) -> PathBuf {
+        if self.sessions.path.is_absolute() {
+            self.sessions.path.clone()
+        } else {
+            self.data_dir.join(&self.sessions.path)
+        }
+    }
+
+    /// Resolve the cron store path. If `cron.path` is relative, it's
+    /// resolved against `data_dir`. If absolute, used as-is.
+    pub fn cron_path(&self) -> PathBuf {
+        if self.cron.path.is_absolute() {
+            self.cron.path.clone()
+        } else {
+            self.data_dir.join(&self.cron.path)
+        }
+    }
+
     /// Returns true if a Discord token is configured and usable.
     pub fn has_discord_token(&self) -> bool {
         self.discord
@@ -304,7 +333,7 @@ fn default_store_type() -> String {
 }
 
 fn default_sessions_path() -> PathBuf {
-    PathBuf::from("./data/sessions")
+    PathBuf::from("sessions")
 }
 
 #[derive(Debug, Deserialize)]
@@ -461,7 +490,7 @@ impl Default for CronConfig {
 }
 
 fn default_cron_path() -> PathBuf {
-    PathBuf::from("./data/cron_jobs.json")
+    PathBuf::from("cron_jobs.json")
 }
 
 #[derive(Debug, Deserialize)]

@@ -185,14 +185,19 @@ async fn main() {
         Arc::new(DynamicProvider::placeholder())
     };
 
+    // --- Data directory ---
+    let sessions_path = config.sessions_path();
+    let cron_path = config.cron_path();
+    eprintln!("[init] data directory: {}", config.data_dir.display());
+
     // --- Session store ---
     let store: Arc<dyn orra::store::SessionStore> = match config.sessions.store.as_str() {
         "file" => {
             eprintln!(
                 "[init] session store: file ({})",
-                config.sessions.path.display()
+                sessions_path.display()
             );
-            Arc::new(FileStore::new(&config.sessions.path))
+            Arc::new(FileStore::new(&sessions_path))
         }
         _ => {
             eprintln!("[init] session store: in-memory");
@@ -202,12 +207,12 @@ async fn main() {
 
     // --- Cron service ---
     let cron_service = if config.cron.enabled {
-        let cron_store = Arc::new(FileCronStore::new(&config.cron.path));
+        let cron_store = Arc::new(FileCronStore::new(&cron_path));
         if let Err(e) = cron_store.load_from_disk().await {
             eprintln!("[init] cron: failed to load jobs: {}", e);
         }
         let svc = Arc::new(CronService::new(cron_store));
-        eprintln!("[init] cron: enabled ({})", config.cron.path.display());
+        eprintln!("[init] cron: enabled ({})", cron_path.display());
         Some(svc)
     } else {
         None
@@ -503,6 +508,7 @@ async fn main() {
         let fed_state = federation::api::FederationState {
             service: fed_service.clone(),
             runtimes: runtimes.clone(),
+            store: store.clone(),
         };
         let fed_router = federation::api::federation_router(fed_state);
         let fed_addr = format!("0.0.0.0:{federation_port}");

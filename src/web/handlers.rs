@@ -195,6 +195,13 @@ pub struct SessionInfo {
     /// Instance name (populated when federation is enabled).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
+    /// True when this session lives on a remote peer.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub remote: bool,
+}
+
+fn is_false(v: &bool) -> bool {
+    !v
 }
 
 pub async fn list_sessions(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
@@ -238,9 +245,57 @@ pub async fn list_sessions(State(state): State<AppState>, headers: HeaderMap) ->
                         working_directory,
                         chaos_mode,
                         instance,
+                        remote: false,
                     });
                 }
             }
+
+            // Aggregate remote sessions from federated peers
+            if let Some(ref fed) = state.federation_service {
+                let peers = fed.registry().list_peers().await;
+                let healthy_peers: Vec<_> = peers
+                    .into_iter()
+                    .filter(|p| p.health == crate::federation::PeerHealth::Healthy)
+                    .collect();
+
+                if !healthy_peers.is_empty() {
+                    let mut handles = Vec::new();
+                    for peer in healthy_peers {
+                        let url = peer.url.clone();
+                        let secret = peer.shared_secret.clone();
+                        let name = peer.name.clone();
+                        handles.push(tokio::spawn(async move {
+                            let result = tokio::time::timeout(
+                                std::time::Duration::from_secs(3),
+                                crate::federation::client::PeerClient::list_sessions(&url, &secret),
+                            )
+                            .await;
+                            (name, result)
+                        }));
+                    }
+
+                    for handle in handles {
+                        if let Ok((_peer_name, Ok(Ok(remote_sessions)))) = handle.await {
+                            for rs in remote_sessions {
+                                sessions.push(SessionInfo {
+                                    namespace: rs.namespace,
+                                    name: rs.name,
+                                    message_count: rs.message_count,
+                                    created_at: rs.created_at,
+                                    updated_at: rs.updated_at,
+                                    working_directory: None,
+                                    chaos_mode: false,
+                                    instance: Some(rs.instance),
+                                    remote: true,
+                                });
+                            }
+                        } else {
+                            // Timeout or error — skip this peer silently
+                        }
+                    }
+                }
+            }
+
             // Sort by most recently updated
             sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
             (StatusCode::OK, Json(sessions)).into_response()
@@ -274,15 +329,86 @@ pub struct MessageInfo {
     pub content: String,
 }
 
+#[derive(Deserialize, Default)]
+pub struct GetSessionQuery {
+    /// When set, proxy the request to the named remote instance.
+    pub instance: Option<String>,
+}
+
 pub async fn get_session(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
+    Query(query): Query<GetSessionQuery>,
 ) -> impl IntoResponse {
     if let Err(e) = check_auth(&state, &headers) {
         return e.into_response();
     }
 
+    // If an instance is specified and it doesn't match local, proxy to the remote peer
+    if let Some(ref remote_instance) = query.instance {
+        let is_local = state
+            .federation_service
+            .as_ref()
+            .map(|f| f.instance_name() == remote_instance.as_str())
+            .unwrap_or(false);
+
+        if !is_local {
+            if let Some(ref fed) = state.federation_service {
+                let peers = fed.registry().list_peers().await;
+                if let Some(peer) = peers.iter().find(|p| p.name == *remote_instance) {
+                    match crate::federation::client::PeerClient::get_session(
+                        &peer.url,
+                        &peer.shared_secret,
+                        &id,
+                    )
+                    .await
+                    {
+                        Ok(remote_detail) => {
+                            let detail = SessionDetail {
+                                namespace: remote_detail.namespace,
+                                messages: remote_detail
+                                    .messages
+                                    .into_iter()
+                                    .map(|m| MessageInfo {
+                                        role: m.role,
+                                        content: m.content,
+                                    })
+                                    .collect(),
+                                created_at: remote_detail.created_at,
+                                updated_at: remote_detail.updated_at,
+                            };
+                            return (StatusCode::OK, Json(detail)).into_response();
+                        }
+                        Err(e) => {
+                            return (
+                                StatusCode::BAD_GATEWAY,
+                                Json(ErrorResponse {
+                                    error: format!(
+                                        "failed to fetch session from {}: {}",
+                                        remote_instance, e
+                                    ),
+                                    code: "federation_error".into(),
+                                }),
+                            )
+                                .into_response();
+                        }
+                    }
+                } else {
+                    return (
+                        StatusCode::NOT_FOUND,
+                        Json(ErrorResponse {
+                            error: format!("unknown federation peer: {}", remote_instance),
+                            code: "peer_not_found".into(),
+                        }),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    }
+
+    // Local session lookup
     let ns = Namespace::parse(&id);
     match state.store.load(&ns).await {
         Ok(Some(session)) => {
@@ -367,6 +493,49 @@ pub async fn get_settings(State(state): State<AppState>, headers: HeaderMap) -> 
     let auth_source = state.auth_source.read().await.clone();
     let discord_state = state.discord_manager.state().await;
 
+    // Build federation info
+    let federation = if let Some(ref fed) = state.federation_service {
+        let peers = fed.registry().list_peers().await;
+        let remote_agents = fed.registry().remote_agents().await;
+
+        let peers_json: Vec<serde_json::Value> = peers
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "name": p.name,
+                    "url": p.url,
+                    "health": format!("{:?}", p.health),
+                    "agents": p.agents.iter().map(|a| &a.name).collect::<Vec<_>>(),
+                    "source": format!("{:?}", p.source),
+                })
+            })
+            .collect();
+
+        let remote_agents_json: Vec<serde_json::Value> = remote_agents
+            .iter()
+            .map(|a| {
+                serde_json::json!({
+                    "name": a.name,
+                    "personality": a.personality,
+                    "model": a.model,
+                    "instance": a.instance,
+                })
+            })
+            .collect();
+
+        serde_json::json!({
+            "enabled": true,
+            "instance_name": fed.instance_name(),
+            "mdns_enabled": fed.mdns_enabled(),
+            "peers": peers_json,
+            "remote_agents": remote_agents_json,
+        })
+    } else {
+        serde_json::json!({
+            "enabled": false,
+        })
+    };
+
     (
         StatusCode::OK,
         Json(serde_json::json!({
@@ -382,7 +551,8 @@ pub async fn get_settings(State(state): State<AppState>, headers: HeaderMap) -> 
                 "token_hint": discord_state.token_hint,
                 "filter": discord_state.filter,
                 "allowed_users": discord_state.allowed_users,
-            }
+            },
+            "federation": federation,
         })),
     )
         .into_response()

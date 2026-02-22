@@ -82,11 +82,69 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 };
 
                 match ws_msg {
-                    WsMessage::Chat { message, namespace, model, agent } => {
+                    WsMessage::Chat { message, namespace, model, agent, instance } => {
                         let ns_key = namespace.unwrap_or_else(|| {
                             format!("web:{}", uuid::Uuid::new_v4())
                         });
                         let ns = Namespace::parse(&ns_key);
+
+                        // If `instance` is set and doesn't match local, proxy to the remote peer's session
+                        if let Some(ref remote_instance) = instance {
+                            let is_local = state
+                                .federation_service
+                                .as_ref()
+                                .map(|f| f.instance_name() == remote_instance.as_str())
+                                .unwrap_or(true); // no federation = treat as local
+
+                            if !is_local {
+                                if let Some(ref fed) = state.federation_service {
+                                    let peers = fed.registry().list_peers().await;
+                                    if let Some(peer) = peers.iter().find(|p| &p.name == remote_instance) {
+                                        let request = orra::channels::federation::SessionChatRequest {
+                                            namespace: ns_key.clone(),
+                                            message: message.clone(),
+                                            agent: agent.clone(),
+                                            model: model.clone(),
+                                            source_peer: fed.instance_name().to_string(),
+                                        };
+                                        let peer_url = peer.url.clone();
+                                        let peer_secret = peer.shared_secret.clone();
+                                        let result_tx = result_tx.clone();
+                                        let ns_key_clone = ns_key.clone();
+
+                                        tokio::spawn(async move {
+                                            let ws_msg = match crate::federation::client::PeerClient::chat_in_session(
+                                                &peer_url,
+                                                &peer_secret,
+                                                &request,
+                                            ).await {
+                                                Ok(resp) => WsMessage::Response {
+                                                    message: resp.message,
+                                                    namespace: ns_key_clone,
+                                                    usage: ChatUsage {
+                                                        input_tokens: 0,
+                                                        output_tokens: 0,
+                                                        total_tokens: 0,
+                                                    },
+                                                    agent: resp.agent.map(|a| format!("{}:{}", resp.instance, a)),
+                                                },
+                                                Err(e) => WsMessage::Error {
+                                                    error: format!("Remote session chat failed: {e}"),
+                                                },
+                                            };
+                                            let _ = result_tx.send(ws_msg).await;
+                                        });
+                                        continue;
+                                    } else {
+                                        let err = WsMessage::Error {
+                                            error: format!("Unknown federation peer: {}", remote_instance),
+                                        };
+                                        let _ = send_ws_msg(&mut socket, &err).await;
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
 
                         // Check for @peer:agent pattern (federation direct routing)
                         if let Some(ref fed) = state.federation_service {

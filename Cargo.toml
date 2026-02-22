@@ -6,7 +6,7 @@ description = "A self-hostable AI assistant with web UI, Discord bot, scheduled 
 license = "MIT"
 
 [dependencies]
-orra = { path = "../agentic", features = [
+orra = { git = "https://github.com/jereanon/orra.git", rev = "7d3ae55", features = [
     "claude",
     "openai",
     "discord",
@@ -38,3 +38,4 @@ async-trait = "0.1"
 thiserror = "2"
 hostname = "0.4"
 mdns-sd = "0.11"
+urlencoding = "2.1.3"
