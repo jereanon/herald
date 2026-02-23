@@ -2176,3 +2176,110 @@ pub async fn delete_agent(
 
     (StatusCode::OK, Json(serde_json::json!({ "success": true }))).into_response()
 }
+
+// ---------------------------------------------------------------------------
+// GET /api/version
+// ---------------------------------------------------------------------------
+
+pub async fn get_version(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let install_type = crate::update::detect_install_type();
+
+    if let Some(info) = state.update_checker.get_cached().await {
+        (StatusCode::OK, Json(serde_json::json!(info))).into_response()
+    } else {
+        // No cached data yet — return current version with null fields
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "current_version": env!("CARGO_PKG_VERSION"),
+                "latest_version": null,
+                "update_available": false,
+                "release_url": null,
+                "release_notes": null,
+                "published_at": null,
+                "assets": [],
+                "install_type": install_type.as_str(),
+                "can_self_update": install_type.can_self_update(),
+            })),
+        )
+            .into_response()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/update/check
+// ---------------------------------------------------------------------------
+
+pub async fn check_update(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    match state.update_checker.check_now().await {
+        Ok(info) => (StatusCode::OK, Json(serde_json::json!(info))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": e,
+                "code": "update_check_failed",
+            })),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/update/install
+// ---------------------------------------------------------------------------
+
+pub async fn install_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let info = match state.update_checker.get_cached().await {
+        Some(info) if info.update_available => info,
+        Some(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "success": false,
+                    "restart_required": false,
+                    "message": "No update available. Check for updates first.",
+                })),
+            )
+                .into_response();
+        }
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "success": false,
+                    "restart_required": false,
+                    "message": "No update information cached. Check for updates first.",
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    match crate::update::download_and_install(&info, &state.data_dir).await {
+        Ok(result) => (StatusCode::OK, Json(serde_json::json!(result))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "restart_required": false,
+                "message": e,
+            })),
+        )
+            .into_response(),
+    }
+}

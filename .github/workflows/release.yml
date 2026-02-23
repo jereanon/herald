@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.nix_system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+            target_os: linux
+            nix_system: x86_64-linux
+          - os: ubuntu-24.04-arm64
+            arch: aarch64
+            target_os: linux
+            nix_system: aarch64-linux
+          - os: macos-13
+            arch: x86_64
+            target_os: darwin
+            nix_system: x86_64-darwin
+          - os: macos-14
+            arch: aarch64
+            target_os: darwin
+            nix_system: aarch64-darwin
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Build binary
+        run: nix build .#default
+
+      - name: Copy binary
+        run: |
+          cp result/bin/herald herald-${{ matrix.arch }}-${{ matrix.target_os }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: herald-${{ matrix.arch }}-${{ matrix.target_os }}
+          path: herald-${{ matrix.arch }}-${{ matrix.target_os }}
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum herald-* > checksums.sha256
+          cat checksums.sha256
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            artifacts/herald-*
+            artifacts/checksums.sha256

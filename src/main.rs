@@ -5,6 +5,7 @@ mod hooks;
 mod identity;
 mod provider_wrapper;
 mod tools;
+mod update;
 mod web;
 
 use std::path::PathBuf;
@@ -706,6 +707,11 @@ async fn main() {
             .map(|t| orra::tools::discord::DiscordConfig::new(t)),
     ));
 
+    // --- Update checker ---
+    let update_checker = Arc::new(update::UpdateChecker::new());
+    // Check for updates every 6 hours (21600 seconds)
+    update_checker.start_background_check(6 * 60 * 60);
+
     let app_state = web::AppState {
         gateway: gateway.clone(),
         runtime: runtime.clone(),
@@ -725,6 +731,8 @@ async fn main() {
         agent_profiles: agent_profiles.clone(),
         approval_rx: Arc::new(tokio::sync::Mutex::new(approval_rx)),
         federation_service: federation_service.clone(),
+        update_checker,
+        data_dir: config.data_dir.clone(),
     };
 
     // --- Start ---

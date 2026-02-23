@@ -597,6 +597,18 @@
             color: var(--text-primary);
         }
 
+        .update-badge-dot {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #ef5350;
+            pointer-events: none;
+            box-shadow: 0 0 0 2px var(--bg-primary);
+        }
+
         .messages {
             flex: 1;
             overflow-y: auto;
@@ -1458,6 +1470,7 @@
                 <button class="settings-tab" onclick="switchSettingsTab('discord',this)">Discord</button>
                 <button class="settings-tab" onclick="switchSettingsTab('scheduled',this)">Tasks</button>
                 <button class="settings-tab" onclick="switchSettingsTab('federation',this)">Federation</button>
+                <button class="settings-tab" onclick="switchSettingsTab('updates',this)">Updates</button>
             </div>
 
             <!-- General / Provider section -->
@@ -1682,6 +1695,68 @@
                         <div style="color:var(--text-secondary);font-size:13px;font-style:italic;padding:8px 0">No remote agents available.</div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Updates section -->
+            <div class="settings-section" data-tab="updates">
+                <h3>Updates</h3>
+
+                <div class="settings-field">
+                    <label>Current Version</label>
+                    <span id="updateCurrentVersion" style="font-family:monospace;font-weight:600">—</span>
+                </div>
+
+                <div class="settings-field">
+                    <label>Latest Version</label>
+                    <span>
+                        <span id="updateLatestVersion" style="font-family:monospace;font-weight:600">—</span>
+                        <span id="updateBadgeIndicator" style="display:none;margin-left:8px;font-size:0.85em">
+                            <span id="updateBadgeDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#4caf50;vertical-align:middle;margin-right:4px"></span>
+                            <span id="updateBadgeText" style="color:#4caf50">Up to date</span>
+                        </span>
+                    </span>
+                </div>
+
+                <div class="settings-field" id="updateReleasedRow" style="display:none">
+                    <label>Released</label>
+                    <span id="updatePublishedAt">—</span>
+                </div>
+
+                <div class="settings-field">
+                    <label>Install Type</label>
+                    <span id="updateInstallType">—</span>
+                </div>
+
+                <div id="updateNixHelp" style="display:none;margin:12px 0;padding:10px 14px;background:var(--bg-secondary);border-radius:6px;font-size:13px">
+                    <div style="margin-bottom:6px">&#8505; Managed by Nix — update via your system configuration</div>
+                    <code style="display:block;background:var(--bg-primary);padding:8px 10px;border-radius:4px;font-size:12px;white-space:pre-wrap">nix flake update herald && sudo nixos-rebuild switch</code>
+                </div>
+
+                <div id="updateCargoDevHelp" style="display:none;margin:12px 0;padding:10px 14px;background:var(--bg-secondary);border-radius:6px;font-size:13px">
+                    &#8505; Development build — update by pulling and rebuilding
+                </div>
+
+                <div class="settings-actions" style="margin-top:16px">
+                    <button class="settings-btn" id="checkUpdatesBtn" onclick="checkForUpdates()">Check for Updates</button>
+                </div>
+
+                <div id="updateReleaseNotesSection" style="display:none;margin-top:20px">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                        <hr style="flex:1;border:none;border-top:1px solid var(--border)">
+                        <span style="font-size:12px;color:var(--text-secondary);white-space:nowrap">Release Notes</span>
+                        <hr style="flex:1;border:none;border-top:1px solid var(--border)">
+                    </div>
+                    <div id="updateReleaseNotes" style="background:var(--bg-secondary);border-radius:6px;padding:12px 16px;font-size:13px;line-height:1.6"></div>
+                </div>
+
+                <div class="settings-actions" id="updateActionButtons" style="display:none;margin-top:16px;gap:8px">
+                    <a id="updateGithubLink" href="#" target="_blank" rel="noopener noreferrer">
+                        <button class="settings-btn-secondary">View on GitHub</button>
+                    </a>
+                    <button class="settings-btn" id="installUpdateBtn" onclick="installUpdate()" style="display:none">Install Update</button>
+                </div>
+
+                <div class="settings-status" id="updateStatus"></div>
             </div>
         </div>
     </div>
@@ -2913,6 +2988,7 @@
             if (tabName === 'scheduled') { loadChannels().then(() => loadCronJobs()); }
             if (tabName === 'agents') loadAgents();
             if (tabName === 'federation') loadFederationData();
+            if (tabName === 'updates') loadUpdateData();
         }
 
         function restoreSettingsTab() {
@@ -2920,7 +2996,7 @@
             const tabs = document.querySelectorAll('.settings-tab');
             tabs.forEach(t => {
                 const name = t.textContent.trim().toLowerCase();
-                const tabMap = { 'general': 'general', 'agents': 'agents', 'discord': 'discord', 'tasks': 'scheduled', 'federation': 'federation' };
+                const tabMap = { 'general': 'general', 'agents': 'agents', 'discord': 'discord', 'tasks': 'scheduled', 'federation': 'federation', 'updates': 'updates' };
                 if (tabMap[name] === saved) {
                     switchSettingsTab(saved, t);
                 }
@@ -3350,6 +3426,224 @@
                 statusEl.textContent = 'Network error saving settings';
                 statusEl.className = 'settings-status error';
             }
+        }
+
+        // ---------------------------------------------------------------------------
+        // Updates tab
+        // ---------------------------------------------------------------------------
+
+        function loadUpdateData() {
+            const headers = {};
+            if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+            fetch('/api/version', { headers })
+                .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+                .then(data => renderUpdateTab(data))
+                .catch(err => {
+                    document.getElementById('updateStatus').textContent = 'Failed to load version info: ' + err.message;
+                });
+        }
+
+        function renderUpdateTab(data) {
+            document.getElementById('updateCurrentVersion').textContent = 'v' + (data.current_version || '?');
+
+            const latestEl = document.getElementById('updateLatestVersion');
+            const badgeIndicator = document.getElementById('updateBadgeIndicator');
+            const badgeDot = document.getElementById('updateBadgeDot');
+            const badgeText = document.getElementById('updateBadgeText');
+
+            if (data.latest_version) {
+                latestEl.textContent = 'v' + data.latest_version;
+                badgeIndicator.style.display = 'inline';
+                if (data.update_available) {
+                    badgeDot.style.background = '#4caf50';
+                    badgeText.style.color = '#4caf50';
+                    badgeText.textContent = 'Update available';
+                } else {
+                    badgeDot.style.background = '#888';
+                    badgeText.style.color = '#888';
+                    badgeText.textContent = 'Up to date';
+                }
+            } else {
+                latestEl.textContent = '\u2014';
+                badgeIndicator.style.display = 'none';
+            }
+
+            const releasedRow = document.getElementById('updateReleasedRow');
+            if (data.published_at) {
+                releasedRow.style.display = '';
+                const d = new Date(data.published_at);
+                document.getElementById('updatePublishedAt').textContent = d.toLocaleDateString('en-US', {
+                    year: 'numeric', month: 'long', day: 'numeric'
+                });
+            } else {
+                releasedRow.style.display = 'none';
+            }
+
+            const installTypeMap = {
+                'standalone': 'Standalone binary',
+                'nix': 'Nix package',
+                'cargo_dev': 'Cargo (development)',
+                'unknown': 'Unknown'
+            };
+            document.getElementById('updateInstallType').textContent =
+                installTypeMap[data.install_type] || data.install_type || '\u2014';
+
+            document.getElementById('updateNixHelp').style.display =
+                data.install_type === 'nix' ? '' : 'none';
+            document.getElementById('updateCargoDevHelp').style.display =
+                data.install_type === 'cargo_dev' ? '' : 'none';
+
+            const notesSection = document.getElementById('updateReleaseNotesSection');
+            if (data.update_available && data.release_notes) {
+                notesSection.style.display = '';
+                document.getElementById('updateReleaseNotes').innerHTML = formatReleaseNotes(data.release_notes);
+            } else {
+                notesSection.style.display = 'none';
+            }
+
+            const actionButtons = document.getElementById('updateActionButtons');
+            if (data.update_available) {
+                actionButtons.style.display = 'flex';
+                document.getElementById('updateGithubLink').href = data.release_url || '#';
+                const installBtn = document.getElementById('installUpdateBtn');
+                installBtn.style.display = (data.can_self_update && data.update_available) ? '' : 'none';
+            } else {
+                actionButtons.style.display = 'none';
+            }
+
+            document.getElementById('updateStatus').textContent = '';
+            updateSettingsBadge(data.update_available);
+        }
+
+        function checkForUpdates() {
+            const btn = document.getElementById('checkUpdatesBtn');
+            const origText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Checking\u2026';
+
+            const headers = { 'Content-Type': 'application/json' };
+            if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+            fetch('/api/update/check', { method: 'POST', headers })
+                .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+                .then(data => {
+                    renderUpdateTab(data);
+                    if (!data.update_available) {
+                        document.getElementById('updateStatus').textContent = 'You are running the latest version.';
+                    }
+                })
+                .catch(err => {
+                    document.getElementById('updateStatus').textContent = 'Check failed: ' + err.message;
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.textContent = origText;
+                });
+        }
+
+        function installUpdate() {
+            if (!confirm('Install the latest update? Herald will need to be restarted.')) return;
+
+            const btn = document.getElementById('installUpdateBtn');
+            const statusEl = document.getElementById('updateStatus');
+            btn.disabled = true;
+            btn.textContent = 'Installing\u2026';
+            statusEl.textContent = '';
+
+            const headers = { 'Content-Type': 'application/json' };
+            if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+            fetch('/api/update/install', { method: 'POST', headers })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        statusEl.innerHTML = '<span style="color:#4caf50">\u2713 ' + escapeHtml(data.message || 'Update installed successfully.') + '</span>';
+                        if (data.restart_required) {
+                            statusEl.innerHTML += '<br><span style="color:#ffa726;margin-top:4px;display:inline-block">Restart Herald to use the new version.</span>';
+                        }
+                        btn.textContent = 'Installed';
+                    } else {
+                        statusEl.innerHTML = '<span style="color:#ef5350">\u2717 ' + escapeHtml(data.message || 'Update failed.') + '</span>';
+                        btn.disabled = false;
+                        btn.textContent = 'Install Update';
+                    }
+                })
+                .catch(err => {
+                    statusEl.innerHTML = '<span style="color:#ef5350">\u2717 Install failed: ' + escapeHtml(err.message) + '</span>';
+                    btn.disabled = false;
+                    btn.textContent = 'Install Update';
+                });
+        }
+
+        function formatReleaseNotes(text) {
+            if (!text) return '';
+            const lines = text.split('\n');
+            let html = '';
+            let inList = false;
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('## ')) {
+                    if (inList) { html += '</ul>'; inList = false; }
+                    html += '<div style="font-weight:600;margin:10px 0 6px 0">' + escapeHtml(trimmed.slice(3)) + '</div>';
+                } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+                    if (!inList) { html += '<ul style="margin:4px 0 4px 18px;padding:0">'; inList = true; }
+                    html += '<li>' + escapeHtml(trimmed.slice(2)) + '</li>';
+                } else if (trimmed === '') {
+                    if (inList) { html += '</ul>'; inList = false; }
+                } else {
+                    if (inList) { html += '</ul>'; inList = false; }
+                    html += '<div>' + escapeHtml(trimmed) + '</div>';
+                }
+            }
+            if (inList) html += '</ul>';
+            return html;
+        }
+
+        function updateSettingsBadge(updateAvailable) {
+            // Badge on sidebar settings gear button
+            const gearBtn = document.querySelector('.sidebar-footer button');
+            if (gearBtn) {
+                gearBtn.style.position = 'relative';
+                let dot = gearBtn.querySelector('.update-badge-dot');
+                if (updateAvailable) {
+                    if (!dot) {
+                        dot = document.createElement('span');
+                        dot.className = 'update-badge-dot';
+                        gearBtn.appendChild(dot);
+                    }
+                    dot.style.display = '';
+                } else if (dot) {
+                    dot.style.display = 'none';
+                }
+            }
+
+            // Badge on Updates tab button
+            document.querySelectorAll('.settings-tab').forEach(btn => {
+                if (btn.textContent.trim() === 'Updates') {
+                    btn.style.position = 'relative';
+                    let dot = btn.querySelector('.update-badge-dot');
+                    if (updateAvailable) {
+                        if (!dot) {
+                            dot = document.createElement('span');
+                            dot.className = 'update-badge-dot';
+                            btn.appendChild(dot);
+                        }
+                        dot.style.display = '';
+                    } else if (dot) {
+                        dot.style.display = 'none';
+                    }
+                }
+            });
+        }
+
+        function checkUpdateBadge() {
+            const headers = {};
+            if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+            fetch('/api/version', { headers })
+                .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+                .then(data => updateSettingsBadge(data.update_available))
+                .catch(() => {});
         }
 
         async function loadSettingsData() {
@@ -4313,6 +4607,7 @@
                     }
                 } catch (e) { /* keep default title */ }
                 startFedStatusPolling();
+                checkUpdateBadge();
 
                 // Auto-select the most recent session if one exists
                 if (cachedSessions.length > 0) {

@@ -25,6 +25,7 @@ use crate::config::{AgentProfileConfig, GatewayConfig};
 use crate::discord_manager::DiscordManager;
 use crate::federation::FederationService;
 use crate::provider_wrapper::DynamicProvider;
+use crate::update::UpdateChecker;
 
 // ---------------------------------------------------------------------------
 // Embedded static files
@@ -78,6 +79,10 @@ pub struct AppState {
     >,
     /// Federation service (None if federation is disabled).
     pub federation_service: Option<Arc<FederationService>>,
+    /// Background update checker for version monitoring.
+    pub update_checker: Arc<UpdateChecker>,
+    /// Data directory for staging update downloads.
+    pub data_dir: PathBuf,
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +131,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/agents", get(handlers::list_agents))
         .route("/agents", post(handlers::create_agent))
         .route("/agents/{name}", put(handlers::update_agent))
-        .route("/agents/{name}", delete(handlers::delete_agent));
+        .route("/agents/{name}", delete(handlers::delete_agent))
+        .route("/version", get(handlers::get_version))
+        .route("/update/check", post(handlers::check_update))
+        .route("/update/install", post(handlers::install_update));
 
     Router::new()
         .route("/health", get(handlers::health))
