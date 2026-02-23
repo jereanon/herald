@@ -89,6 +89,9 @@ pub struct AppState {
     /// Count of active interactive chat requests.
     /// Used by the cron callback to defer execution when chat is active.
     pub interactive_count: Arc<AtomicUsize>,
+    /// OAuth token refresh callback (if CLI credentials are in use).
+    /// Shared with handlers so newly swapped providers can also auto-refresh.
+    pub refresh_callback: Option<crate::refreshable_provider::RefreshFn>,
 }
 
 // ---------------------------------------------------------------------------

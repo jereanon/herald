@@ -124,7 +124,7 @@ pub async fn configure_provider(
         .as_deref()
         .or(state.config_api_url.as_deref());
 
-    let new_provider: Arc<dyn Provider> = match provider_type {
+    let raw_provider: Arc<dyn Provider> = match provider_type {
         "openai" => {
             let mut p = OpenAIProvider::new(&request.api_key, model);
             if let Some(url) = api_url {
@@ -134,6 +134,16 @@ pub async fn configure_provider(
         }
         _ => Arc::new(ClaudeProvider::new(&request.api_key, model)),
     };
+
+    // Wrap in RefreshableProvider for automatic OAuth token refresh
+    let refresh = if request.api_key.starts_with("sk-ant-oat") {
+        state.refresh_callback.clone()
+    } else {
+        None
+    };
+    let new_provider: Arc<dyn Provider> = Arc::new(
+        crate::refreshable_provider::RefreshableProvider::new(raw_provider, refresh),
+    );
 
     // Hot-swap the provider
     state.dynamic_provider.swap(new_provider).await;
@@ -646,7 +656,7 @@ pub async fn update_provider(
                 .into_response();
         }
 
-        let new_provider: Arc<dyn Provider> = match provider_type {
+        let raw_provider: Arc<dyn Provider> = match provider_type {
             "openai" => {
                 let mut p = OpenAIProvider::new(api_key, model);
                 if let Some(url) = api_url {
@@ -657,10 +667,20 @@ pub async fn update_provider(
             _ => Arc::new(ClaudeProvider::new(api_key, model)),
         };
 
+        // Wrap in RefreshableProvider for automatic OAuth token refresh
+        let refresh = if api_key.starts_with("sk-ant-oat") {
+            state.refresh_callback.clone()
+        } else {
+            None
+        };
+        let new_provider: Arc<dyn Provider> = Arc::new(
+            crate::refreshable_provider::RefreshableProvider::new(raw_provider, refresh),
+        );
+
         state.dynamic_provider.swap(new_provider).await;
 
         let mut auth = state.auth_source.write().await;
-        *auth = "web_ui".to_string();
+        *auth = if api_key.starts_with("sk-ant-oat") { "cli" } else { "web_ui" }.to_string();
 
         hlog!(
             "[settings] Provider updated via settings: {} ({})",
@@ -1170,8 +1190,16 @@ pub async fn detect_provider(
     // Try environment variable first
     if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
         if !key.is_empty() {
-            let provider: Arc<dyn Provider> =
+            let raw: Arc<dyn Provider> =
                 Arc::new(ClaudeProvider::new(&key, &state.config_model));
+            let refresh = if key.starts_with("sk-ant-oat") {
+                state.refresh_callback.clone()
+            } else {
+                None
+            };
+            let provider: Arc<dyn Provider> = Arc::new(
+                crate::refreshable_provider::RefreshableProvider::new(raw, refresh),
+            );
             state.dynamic_provider.swap(provider).await;
 
             let mut auth = state.auth_source.write().await;
@@ -1191,7 +1219,13 @@ pub async fn detect_provider(
 
     // Try Claude CLI credentials
     if let Some(key) = config::read_claude_cli_credentials() {
-        let provider: Arc<dyn Provider> = Arc::new(ClaudeProvider::new(&key, &state.config_model));
+        let raw: Arc<dyn Provider> = Arc::new(ClaudeProvider::new(&key, &state.config_model));
+        let provider: Arc<dyn Provider> = Arc::new(
+            crate::refreshable_provider::RefreshableProvider::new(
+                raw,
+                state.refresh_callback.clone(),
+            ),
+        );
         state.dynamic_provider.swap(provider).await;
 
         let mut auth = state.auth_source.write().await;

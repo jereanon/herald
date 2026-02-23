@@ -5,6 +5,7 @@ mod hooks;
 mod identity;
 mod logging;
 mod provider_wrapper;
+mod refreshable_provider;
 mod tools;
 mod update;
 mod web;
@@ -145,6 +146,32 @@ async fn main() {
     // Track how the provider was authenticated for the settings UI.
     let mut auth_source = "none".to_string();
 
+    // Build the OAuth refresh callback (reused by AppState for handler swaps).
+    let refresh_callback: Option<refreshable_provider::RefreshFn> = {
+        let model = config.provider.model.clone();
+        let api_url = config.provider.api_url.clone();
+        Some(Arc::new(move || {
+            let model = model.clone();
+            let api_url = api_url.clone();
+            Box::pin(async move {
+                let model = model.clone();
+                let api_url = api_url.clone();
+                tokio::task::spawn_blocking(move || {
+                    config::read_claude_cli_credentials().map(|token| {
+                        let mut p = ClaudeProvider::new(&token, &model);
+                        if let Some(ref url) = api_url {
+                            p = p.with_api_url(url);
+                        }
+                        Arc::new(p) as Arc<dyn Provider>
+                    })
+                })
+                .await
+                .ok()
+                .flatten()
+            }) as std::pin::Pin<Box<dyn std::future::Future<Output = Option<Arc<dyn Provider>>> + Send>>
+        }))
+    };
+
     let dynamic_provider = if config.has_provider_key() {
         let api_key = config.provider.api_key.as_deref().unwrap();
 
@@ -185,7 +212,18 @@ async fn main() {
                 Arc::new(ClaudeProvider::new(api_key, &config.provider.model))
             }
         };
-        Arc::new(DynamicProvider::with_provider(real_provider))
+
+        // Wrap in RefreshableProvider for automatic OAuth token refresh.
+        // Only attach the refresh callback for CLI-sourced OAuth tokens.
+        let refresh = if auth_source == "cli" {
+            refresh_callback.clone()
+        } else {
+            None
+        };
+        let refreshable: Arc<dyn Provider> =
+            Arc::new(refreshable_provider::RefreshableProvider::new(real_provider, refresh));
+
+        Arc::new(DynamicProvider::with_provider(refreshable))
     } else {
         hlog!("[init] provider: not configured (use web UI to set API key)");
         Arc::new(DynamicProvider::placeholder())
@@ -736,6 +774,7 @@ async fn main() {
         update_checker,
         data_dir: config.data_dir.clone(),
         interactive_count: interactive_count.clone(),
+        refresh_callback: refresh_callback.clone(),
     };
 
     // --- Start ---
