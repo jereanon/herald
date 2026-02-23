@@ -587,6 +587,7 @@ pub async fn get_settings(State(state): State<AppState>, headers: HeaderMap) -> 
             "discord": {
                 "connected": discord_state.connected,
                 "token_hint": discord_state.token_hint,
+                "token_configured": !discord_state.token_hint.is_empty(),
                 "filter": discord_state.filter,
                 "allowed_users": discord_state.allowed_users,
             },
@@ -823,6 +824,151 @@ pub async fn update_discord(
         )
             .into_response()
     }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/settings/discord/disconnect
+// ---------------------------------------------------------------------------
+
+pub async fn disconnect_discord(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    state.discord_manager.disconnect().await;
+    eprintln!("[settings] Discord disconnected via UI");
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "connected": false,
+        })),
+    )
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/settings/discord/connect
+// ---------------------------------------------------------------------------
+
+pub async fn reconnect_discord(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let token = match crate::config::read_discord_token(&state.config_path) {
+        Ok(Some(tok)) => tok,
+        Ok(None) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "No Discord token configured. Add a token first.",
+                    "code": "no_token",
+                })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": format!("Failed to read config: {}", e),
+                    "code": "config_read_error",
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let current = state.discord_manager.state().await;
+
+    match state
+        .discord_manager
+        .connect(
+            &token,
+            &current.filter,
+            current.allowed_users.clone(),
+            &current.namespace_prefix,
+        )
+        .await
+    {
+        Ok(()) => {
+            // Update the discord API config for channel listing
+            {
+                let mut api = state.discord_api.write().await;
+                *api = Some(orra::tools::discord::DiscordConfig::new(&token));
+            }
+            eprintln!("[settings] Discord reconnected via UI");
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "connected": true,
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("Discord connection failed: {}", e),
+                "code": "discord_connect_error",
+            })),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/settings/discord
+// ---------------------------------------------------------------------------
+
+pub async fn remove_discord(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    // Disconnect and clear all state
+    state.discord_manager.clear_state().await;
+
+    // Remove token from config file
+    if let Err(e) = crate::config::remove_discord_token(&state.config_path) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("Failed to update config: {}", e),
+                "code": "config_write_error",
+            })),
+        )
+            .into_response();
+    }
+
+    // Clear the discord API config
+    {
+        let mut api = state.discord_api.write().await;
+        *api = None;
+    }
+
+    eprintln!("[settings] Discord bot removed via UI");
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "connected": false,
+        })),
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------

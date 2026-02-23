@@ -178,4 +178,13 @@ impl DiscordManager {
             state.connected = false;
         }
     }
+
+    /// Fully reset state after bot removal (disconnect + clear token hint etc).
+    pub async fn clear_state(&self) {
+        self.disconnect().await;
+        let mut state = self.state.write().await;
+        state.token_hint = String::new();
+        state.filter = "mentions".into();
+        state.allowed_users = Vec::new();
+    }
 }

@@ -173,6 +173,22 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
         .await
         .map_err(|e| format!("failed to fetch latest release: {}", e))?;
 
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        // No releases published yet — not an error, just nothing to update to
+        let install_type = detect_install_type();
+        return Ok(UpdateInfo {
+            current_version: env!("CARGO_PKG_VERSION").to_string(),
+            latest_version: env!("CARGO_PKG_VERSION").to_string(),
+            update_available: false,
+            release_url: format!("https://github.com/{}/releases", GITHUB_REPO),
+            release_notes: String::new(),
+            published_at: String::new(),
+            assets: vec![],
+            install_type: install_type.as_str().to_string(),
+            can_self_update: install_type.can_self_update(),
+        });
+    }
+
     if !response.status().is_success() {
         return Err(format!(
             "GitHub API returned status {}",

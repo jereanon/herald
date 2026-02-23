@@ -1155,6 +1155,39 @@ pub(crate) fn save_discord_token(path: &Path, token: &str) -> Result<(), ConfigE
     Ok(())
 }
 
+/// Remove (comment out) the Discord token from the TOML config file.
+pub(crate) fn remove_discord_token(path: &Path) -> Result<(), ConfigError> {
+    let content = std::fs::read_to_string(path).map_err(|e| ConfigError::Read {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+    let mut in_discord_section = false;
+
+    for line in lines.iter_mut() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with('[') && !trimmed.starts_with("[[") {
+            in_discord_section = trimmed == "[discord]";
+            continue;
+        }
+
+        if in_discord_section && trimmed.starts_with("token") {
+            *line = format!("# {}", trimmed);
+            break;
+        }
+    }
+
+    let result = lines.join("\n");
+    std::fs::write(path, &result).map_err(|e| ConfigError::Read {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    Ok(())
+}
+
 /// Save Discord filter and allowed_users to the TOML config file.
 pub(crate) fn save_discord_settings(
     path: &Path,

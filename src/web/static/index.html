@@ -973,37 +973,41 @@
             display: none;
         }
 
-        /* Settings modal */
+        /* Settings — full-screen layout */
         .settings-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,0.5);
+            background: var(--bg);
             z-index: 200;
             display: flex;
-            align-items: center;
-            justify-content: center;
         }
 
         .settings-overlay.hidden { display: none; }
 
         .settings-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 28px 32px;
-            max-width: 480px;
+            display: flex;
             width: 100%;
-            margin: 16px;
-            max-height: 90vh;
-            overflow-y: auto;
+            height: 100%;
         }
 
-        .settings-card h2 {
+        /* Sidebar navigation */
+        .settings-sidebar {
+            width: 220px;
+            min-width: 220px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .settings-sidebar-header {
+            padding: 24px 20px 20px;
             font-size: 18px;
-            margin-bottom: 20px;
+            font-weight: 700;
             display: flex;
             align-items: center;
             justify-content: space-between;
+            border-bottom: 1px solid var(--border);
         }
 
         .settings-close {
@@ -1013,9 +1017,32 @@
             cursor: pointer;
             color: var(--text-secondary);
             padding: 0 4px;
+            line-height: 1;
         }
 
         .settings-close:hover { color: var(--text); }
+
+        .settings-sidebar-nav {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+        }
+
+        /* Content area */
+        .settings-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 32px 40px;
+            max-width: 640px;
+        }
+
+        .settings-content-header {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
 
         .settings-section {
             margin-bottom: 24px;
@@ -1285,32 +1312,32 @@
             margin-bottom: 0;
         }
 
-        /* Settings tabs */
-        .settings-tabs {
-            display: flex;
-            border-bottom: 2px solid var(--border);
-            margin-bottom: 16px;
-            gap: 0;
-        }
-
+        /* Settings sidebar tabs */
         .settings-tab {
-            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 10px 20px;
             cursor: pointer;
-            border-bottom: 2px solid transparent;
-            margin-bottom: -2px;
             font-size: 13px;
-            font-weight: 600;
+            font-weight: 500;
             color: var(--text-secondary);
             background: none;
-            border-top: none;
-            border-left: none;
-            border-right: none;
-            transition: color 0.15s, border-color 0.15s;
-            white-space: nowrap;
+            border: none;
+            border-left: 3px solid transparent;
+            text-align: left;
+            transition: color 0.15s, background 0.15s, border-color 0.15s;
+            position: relative;
         }
 
-        .settings-tab:hover { color: var(--text); }
-        .settings-tab.active { border-bottom-color: var(--accent); color: var(--accent); }
+        .settings-tab:hover { color: var(--text); background: var(--bg-tertiary); }
+        .settings-tab.active {
+            color: var(--accent);
+            background: var(--bg-tertiary);
+            border-left-color: var(--accent);
+            font-weight: 600;
+        }
 
         .settings-section[data-tab] { display: none; }
         .settings-section[data-tab].tab-active { display: block; }
@@ -1373,25 +1400,44 @@
             .messages { padding: 12px; }
             .message { max-width: 95%; }
 
-            /* Full-screen settings on mobile */
-            .settings-card {
+            /* Settings: stack sidebar on top on mobile */
+            .settings-card { flex-direction: column; }
+
+            .settings-sidebar {
                 width: 100% !important;
-                height: 100vh !important;
-                max-height: 100vh !important;
-                border-radius: 0 !important;
-                margin: 0 !important;
+                min-width: 100% !important;
+                border-right: none !important;
+                border-bottom: 1px solid var(--border);
+                flex: none;
             }
 
-            .settings-tabs {
+            .settings-sidebar-nav {
+                display: flex;
                 overflow-x: auto;
                 -webkit-overflow-scrolling: touch;
                 scrollbar-width: none;
+                padding: 0;
             }
 
-            .settings-tabs::-webkit-scrollbar { display: none; }
+            .settings-sidebar-nav::-webkit-scrollbar { display: none; }
 
-            /* Touch-friendly targets */
-            .settings-tab { padding: 12px 16px; min-height: 44px; }
+            .settings-tab {
+                border-left: none !important;
+                border-bottom: 3px solid transparent;
+                white-space: nowrap;
+                padding: 12px 16px;
+                min-height: 44px;
+            }
+
+            .settings-tab.active {
+                border-left-color: transparent !important;
+                border-bottom-color: var(--accent) !important;
+            }
+
+            .settings-content {
+                padding: 20px 16px !important;
+                max-width: 100% !important;
+            }
             .session-item { padding: 12px; min-height: 44px; }
             .gear-btn, .theme-toggle { min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; }
 
@@ -1457,24 +1503,27 @@
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
 
     <!-- Settings modal -->
-    <div class="settings-overlay hidden" id="settingsOverlay" onclick="if(event.target===this)closeSettings()">
+    <div class="settings-overlay hidden" id="settingsOverlay">
         <div class="settings-card">
-            <h2>
-                Settings
-                <button class="settings-close" onclick="closeSettings()">&times;</button>
-            </h2>
-
-            <div class="settings-tabs">
-                <button class="settings-tab active" onclick="switchSettingsTab('general',this)">General</button>
-                <button class="settings-tab" onclick="switchSettingsTab('agents',this)">Agents</button>
-                <button class="settings-tab" onclick="switchSettingsTab('discord',this)">Discord</button>
-                <button class="settings-tab" onclick="switchSettingsTab('scheduled',this)">Tasks</button>
-                <button class="settings-tab" onclick="switchSettingsTab('federation',this)">Federation</button>
-                <button class="settings-tab" onclick="switchSettingsTab('updates',this)">Updates</button>
+            <div class="settings-sidebar">
+                <div class="settings-sidebar-header">
+                    Settings
+                    <button class="settings-close" onclick="closeSettings()">&times;</button>
+                </div>
+                <div class="settings-sidebar-nav">
+                    <button class="settings-tab active" onclick="switchSettingsTab('general',this)">General</button>
+                    <button class="settings-tab" onclick="switchSettingsTab('agents',this)">Agents</button>
+                    <button class="settings-tab" onclick="switchSettingsTab('discord',this)">Discord</button>
+                    <button class="settings-tab" onclick="switchSettingsTab('scheduled',this)">Tasks</button>
+                    <button class="settings-tab" onclick="switchSettingsTab('federation',this)">Federation</button>
+                    <button class="settings-tab" onclick="switchSettingsTab('updates',this)">Updates</button>
+                </div>
             </div>
 
+            <div class="settings-content">
             <!-- General / Provider section -->
             <div class="settings-section tab-active" data-tab="general">
+                <div class="settings-content-header">General</div>
                 <div class="settings-field">
                     <label for="settingsUserName">Your Display Name</label>
                     <input type="text" id="settingsUserName" placeholder="User"
@@ -1513,6 +1562,7 @@
 
             <!-- Agents section -->
             <div class="settings-section" data-tab="agents">
+                <div class="settings-content-header">Agents</div>
                 <div id="agentList"></div>
                 <div class="settings-actions" style="margin-top:12px">
                     <button class="settings-btn-secondary" onclick="showAddAgentForm()">+ New Agent</button>
@@ -1547,11 +1597,24 @@
 
             <!-- Discord section -->
             <div class="settings-section" data-tab="discord">
-                <h3>Discord <span class="auth-badge" id="discordConnBadge" style="margin-left:8px">Disconnected</span></h3>
-                <div class="settings-field">
-                    <label for="settingsDiscordToken">Bot Token <span id="discordTokenHint" style="font-weight:normal;color:var(--text-secondary);font-size:12px"></span></label>
-                    <input type="password" id="settingsDiscordToken" placeholder="Enter new Discord bot token">
+                <div class="settings-content-header">Discord <span class="auth-badge" id="discordConnBadge" style="margin-left:8px;font-size:12px;vertical-align:middle">Disconnected</span></div>
+
+                <!-- Token info (shown when bot is configured) -->
+                <div id="discordTokenInfo" style="display:none;margin-bottom:16px;padding:12px 16px;background:var(--bg-secondary);border-radius:8px;border:1px solid var(--border)">
+                    <div style="display:flex;align-items:center;justify-content:space-between">
+                        <div>
+                            <span style="font-size:13px;color:var(--text-secondary)">Bot Token</span>
+                            <div style="font-family:monospace;font-size:14px;margin-top:2px" id="discordTokenDisplay"></div>
+                        </div>
+                    </div>
                 </div>
+
+                <!-- Token input (shown when no bot configured) -->
+                <div id="discordTokenInput" class="settings-field">
+                    <label for="settingsDiscordToken">Bot Token</label>
+                    <input type="password" id="settingsDiscordToken" placeholder="Enter Discord bot token">
+                </div>
+
                 <div class="settings-field">
                     <label for="settingsDiscordFilter">Message Filter</label>
                     <select id="settingsDiscordFilter" onchange="toggleAllowedUsers()">
@@ -1564,15 +1627,22 @@
                     <label for="settingsAllowedUsers">Allowed Usernames <span style="font-weight:normal;color:var(--text-secondary);font-size:12px">(comma-separated)</span></label>
                     <input type="text" id="settingsAllowedUsers" placeholder="e.g. alice, bob">
                 </div>
-                <div class="settings-actions">
-                    <button class="settings-btn" onclick="saveDiscordSettings()">Save &amp; Connect</button>
+
+                <!-- Action buttons — change based on state -->
+                <div class="settings-actions" id="discordActions">
+                    <button class="settings-btn" id="discordSaveBtn" onclick="saveDiscordSettings()">Save &amp; Connect</button>
+                    <button class="settings-btn-secondary" id="discordDisconnectBtn" onclick="disconnectDiscord()" style="display:none">Disconnect</button>
+                    <button class="settings-btn-secondary" id="discordConnectBtn" onclick="reconnectDiscord()" style="display:none">Connect</button>
+                </div>
+                <div style="margin-top:12px" id="discordDangerZone" style="display:none">
+                    <button style="background:none;border:none;color:var(--danger);font-size:12px;cursor:pointer;padding:0;text-decoration:underline" id="discordRemoveBtn" onclick="removeDiscordBot()">Remove Bot</button>
                 </div>
                 <div class="settings-status" id="discordStatus"></div>
             </div>
 
             <!-- Scheduled Tasks section -->
             <div class="settings-section" data-tab="scheduled">
-                <h3>Scheduled Tasks</h3>
+                <div class="settings-content-header">Scheduled Tasks</div>
                 <div class="cron-list" id="cronJobList">
                     <div class="cron-empty" id="cronEmpty">No scheduled tasks.</div>
                 </div>
@@ -1633,7 +1703,7 @@
 
             <!-- Federation section -->
             <div class="settings-section" data-tab="federation">
-                <h3>Federation</h3>
+                <div class="settings-content-header">Federation</div>
 
                 <!-- Configuration Form -->
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
@@ -1699,7 +1769,7 @@
 
             <!-- Updates section -->
             <div class="settings-section" data-tab="updates">
-                <h3>Updates</h3>
+                <div class="settings-content-header">Updates</div>
 
                 <div class="settings-field">
                     <label>Current Version</label>
@@ -1758,6 +1828,7 @@
 
                 <div class="settings-status" id="updateStatus"></div>
             </div>
+            </div><!-- /settings-content -->
         </div>
     </div>
 
@@ -3018,6 +3089,12 @@
             hideAgentForm();
         }
 
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && !document.getElementById('settingsOverlay').classList.contains('hidden')) {
+                closeSettings();
+            }
+        });
+
         // ---------------------------------------------------------------------------
         // Agents
         // ---------------------------------------------------------------------------
@@ -3674,21 +3751,49 @@
                 document.getElementById('settingsApiUrlField').style.display =
                     data.provider.provider_type === 'openai' ? 'block' : 'none';
 
-                // Discord
-                const hint = document.getElementById('discordTokenHint');
-                if (data.discord.token_hint) {
-                    hint.textContent = `(current: ${data.discord.token_hint})`;
-                } else {
-                    hint.textContent = '(not set)';
-                }
+                // Discord — state-based UI
+                const tokenConfigured = data.discord.token_configured || false;
+                const connected = data.discord.connected || false;
 
                 const connBadge = document.getElementById('discordConnBadge');
-                if (data.discord.connected) {
-                    connBadge.textContent = 'Connected';
-                    connBadge.className = 'auth-badge cli';
+                const tokenInfo = document.getElementById('discordTokenInfo');
+                const tokenInput = document.getElementById('discordTokenInput');
+                const tokenDisplay = document.getElementById('discordTokenDisplay');
+                const saveBtn = document.getElementById('discordSaveBtn');
+                const disconnectBtn = document.getElementById('discordDisconnectBtn');
+                const connectBtn = document.getElementById('discordConnectBtn');
+                const dangerZone = document.getElementById('discordDangerZone');
+
+                if (tokenConfigured) {
+                    // Bot is configured — show token info, hide token input
+                    tokenInfo.style.display = '';
+                    tokenInput.style.display = 'none';
+                    tokenDisplay.textContent = data.discord.token_hint || '****';
+                    dangerZone.style.display = '';
+
+                    if (connected) {
+                        connBadge.textContent = 'Connected';
+                        connBadge.className = 'auth-badge cli';
+                        saveBtn.textContent = 'Save Settings';
+                        disconnectBtn.style.display = '';
+                        connectBtn.style.display = 'none';
+                    } else {
+                        connBadge.textContent = 'Disconnected';
+                        connBadge.className = 'auth-badge none';
+                        saveBtn.textContent = 'Save & Connect';
+                        disconnectBtn.style.display = 'none';
+                        connectBtn.style.display = '';
+                    }
                 } else {
-                    connBadge.textContent = 'Disconnected';
+                    // No bot configured — show token input, hide info
+                    tokenInfo.style.display = 'none';
+                    tokenInput.style.display = '';
+                    connBadge.textContent = 'Not Configured';
                     connBadge.className = 'auth-badge none';
+                    saveBtn.textContent = 'Save & Connect';
+                    disconnectBtn.style.display = 'none';
+                    connectBtn.style.display = 'none';
+                    dangerZone.style.display = 'none';
                 }
 
                 document.getElementById('settingsDiscordFilter').value = data.discord.filter || 'mentions';
@@ -3851,6 +3956,76 @@
                     loadSettingsData();
                 } else {
                     statusEl.textContent = data.error || 'Save failed.';
+                    statusEl.className = 'settings-status error';
+                }
+            } catch (e) {
+                statusEl.textContent = `Error: ${e.message}`;
+                statusEl.className = 'settings-status error';
+            }
+        }
+
+        async function disconnectDiscord() {
+            const statusEl = document.getElementById('discordStatus');
+            statusEl.textContent = 'Disconnecting...';
+            statusEl.className = 'settings-status';
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+                const resp = await fetch('/api/settings/discord/disconnect', { method: 'POST', headers });
+                const data = await resp.json();
+                if (resp.ok && data.success) {
+                    statusEl.textContent = 'Discord disconnected.';
+                    statusEl.className = 'settings-status success';
+                    loadSettingsData();
+                } else {
+                    statusEl.textContent = data.error || 'Disconnect failed.';
+                    statusEl.className = 'settings-status error';
+                }
+            } catch (e) {
+                statusEl.textContent = `Error: ${e.message}`;
+                statusEl.className = 'settings-status error';
+            }
+        }
+
+        async function reconnectDiscord() {
+            const statusEl = document.getElementById('discordStatus');
+            statusEl.textContent = 'Connecting...';
+            statusEl.className = 'settings-status';
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+                const resp = await fetch('/api/settings/discord/connect', { method: 'POST', headers });
+                const data = await resp.json();
+                if (resp.ok && data.success) {
+                    statusEl.textContent = 'Discord connected successfully.';
+                    statusEl.className = 'settings-status success';
+                    loadSettingsData();
+                } else {
+                    statusEl.textContent = data.error || 'Connection failed.';
+                    statusEl.className = 'settings-status error';
+                }
+            } catch (e) {
+                statusEl.textContent = `Error: ${e.message}`;
+                statusEl.className = 'settings-status error';
+            }
+        }
+
+        async function removeDiscordBot() {
+            if (!confirm('Remove the Discord bot? This will disconnect it and delete the token from your config.')) return;
+            const statusEl = document.getElementById('discordStatus');
+            statusEl.textContent = 'Removing...';
+            statusEl.className = 'settings-status';
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+                const resp = await fetch('/api/settings/discord', { method: 'DELETE', headers });
+                const data = await resp.json();
+                if (resp.ok && data.success) {
+                    statusEl.textContent = 'Discord bot removed.';
+                    statusEl.className = 'settings-status success';
+                    loadSettingsData();
+                } else {
+                    statusEl.textContent = data.error || 'Remove failed.';
                     statusEl.className = 'settings-status error';
                 }
             } catch (e) {
