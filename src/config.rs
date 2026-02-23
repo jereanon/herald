@@ -1306,6 +1306,270 @@ pub(crate) fn save_agents(path: &Path, agents: &[AgentProfileConfig]) -> Result<
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Federation config persistence
+// ---------------------------------------------------------------------------
+
+/// Settings that can be saved to the `[federation]` section of the TOML config.
+pub(crate) struct FederationSettingsUpdate {
+    pub enabled: bool,
+    pub instance_name: Option<String>,
+    /// `None` = don't change existing secret; `Some("")` would clear it.
+    pub shared_secret: Option<String>,
+    pub mdns_enabled: bool,
+    pub port: Option<u16>,
+    pub exposed_agents: Vec<String>,
+}
+
+/// Save federation settings to the `[federation]` section, preserving file
+/// structure and comments on unrelated lines.
+pub(crate) fn save_federation_settings(
+    path: &Path,
+    settings: &FederationSettingsUpdate,
+) -> Result<(), ConfigError> {
+    let content = std::fs::read_to_string(path).map_err(|e| ConfigError::Read {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+    let mut in_federation_section = false;
+    let mut federation_section_start = None;
+    let mut federation_section_end = None;
+
+    // Track which fields we've replaced
+    let mut enabled_replaced = false;
+    let mut instance_name_replaced = false;
+    let mut secret_replaced = false;
+    let mut mdns_replaced = false;
+    let mut port_replaced = false;
+    let mut exposed_replaced = false;
+
+    for i in 0..lines.len() {
+        let trimmed = lines[i].trim().to_string();
+
+        if trimmed.starts_with('[') {
+            if trimmed == "[federation]" {
+                in_federation_section = true;
+                federation_section_start = Some(i);
+                continue;
+            } else if trimmed.starts_with("[[federation.") {
+                // Sub-array like [[federation.peers]] — end of main section
+                if in_federation_section {
+                    federation_section_end = Some(i);
+                    in_federation_section = false;
+                }
+                continue;
+            } else if in_federation_section {
+                federation_section_end = Some(i);
+                in_federation_section = false;
+            }
+        }
+
+        if in_federation_section {
+            if trimmed.starts_with("enabled") || trimmed.starts_with("# enabled") {
+                lines[i] = format!("enabled = {}", settings.enabled);
+                enabled_replaced = true;
+            } else if trimmed.starts_with("instance_name") || trimmed.starts_with("# instance_name")
+            {
+                if let Some(ref name) = settings.instance_name {
+                    lines[i] = format!("instance_name = \"{}\"", name);
+                }
+                instance_name_replaced = true;
+            } else if trimmed.starts_with("shared_secret")
+                || trimmed.starts_with("# shared_secret")
+            {
+                if let Some(ref secret) = settings.shared_secret {
+                    lines[i] = format!("shared_secret = \"{}\"", secret);
+                }
+                secret_replaced = true;
+            } else if trimmed.starts_with("mdns_enabled") || trimmed.starts_with("# mdns_enabled")
+            {
+                lines[i] = format!("mdns_enabled = {}", settings.mdns_enabled);
+                mdns_replaced = true;
+            } else if trimmed.starts_with("port") || trimmed.starts_with("# port") {
+                match settings.port {
+                    Some(p) => lines[i] = format!("port = {}", p),
+                    None => lines[i] = "# port = 8081".to_string(),
+                }
+                port_replaced = true;
+            } else if trimmed.starts_with("exposed_agents")
+                || trimmed.starts_with("# exposed_agents")
+            {
+                if settings.exposed_agents.is_empty() {
+                    lines[i] = "exposed_agents = []".to_string();
+                } else {
+                    let agents: Vec<String> = settings
+                        .exposed_agents
+                        .iter()
+                        .map(|a| format!("\"{}\"", a))
+                        .collect();
+                    lines[i] = format!("exposed_agents = [{}]", agents.join(", "));
+                }
+                exposed_replaced = true;
+            }
+        }
+    }
+
+    // If we were still in the section at EOF
+    if in_federation_section {
+        federation_section_end = Some(lines.len());
+    }
+
+    // Insert any missing fields at the end of the federation section
+    let insert_pos = federation_section_end.unwrap_or(lines.len());
+
+    let mut insertions = Vec::new();
+    if !exposed_replaced {
+        if settings.exposed_agents.is_empty() {
+            insertions.push("exposed_agents = []".to_string());
+        } else {
+            let agents: Vec<String> = settings
+                .exposed_agents
+                .iter()
+                .map(|a| format!("\"{}\"", a))
+                .collect();
+            insertions.push(format!("exposed_agents = [{}]", agents.join(", ")));
+        }
+    }
+    if !port_replaced {
+        if let Some(p) = settings.port {
+            insertions.push(format!("port = {}", p));
+        }
+    }
+    if !mdns_replaced {
+        insertions.push(format!("mdns_enabled = {}", settings.mdns_enabled));
+    }
+    if !secret_replaced {
+        if let Some(ref secret) = settings.shared_secret {
+            insertions.push(format!("shared_secret = \"{}\"", secret));
+        }
+    }
+    if !instance_name_replaced {
+        if let Some(ref name) = settings.instance_name {
+            insertions.push(format!("instance_name = \"{}\"", name));
+        }
+    }
+    if !enabled_replaced {
+        insertions.push(format!("enabled = {}", settings.enabled));
+    }
+
+    if federation_section_start.is_none() {
+        // No [federation] section exists — create one
+        lines.push(String::new());
+        lines.push("[federation]".to_string());
+        lines.push(format!("enabled = {}", settings.enabled));
+        if let Some(ref name) = settings.instance_name {
+            lines.push(format!("instance_name = \"{}\"", name));
+        }
+        if let Some(ref secret) = settings.shared_secret {
+            lines.push(format!("shared_secret = \"{}\"", secret));
+        }
+        lines.push(format!("mdns_enabled = {}", settings.mdns_enabled));
+        if let Some(p) = settings.port {
+            lines.push(format!("port = {}", p));
+        }
+        if !settings.exposed_agents.is_empty() {
+            let agents: Vec<String> = settings
+                .exposed_agents
+                .iter()
+                .map(|a| format!("\"{}\"", a))
+                .collect();
+            lines.push(format!("exposed_agents = [{}]", agents.join(", ")));
+        }
+    } else {
+        for (offset, line) in insertions.into_iter().enumerate() {
+            lines.insert(insert_pos + offset, line);
+        }
+    }
+
+    let result = lines.join("\n");
+    std::fs::write(path, &result).map_err(|e| ConfigError::Read {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    Ok(())
+}
+
+/// Save federation peer list to the config file. Removes all existing
+/// `[[federation.peers]]` entries and rewrites them.
+pub(crate) fn save_federation_peers(
+    path: &Path,
+    peers: &[FederationPeerConfig],
+) -> Result<(), ConfigError> {
+    let content = std::fs::read_to_string(path).map_err(|e| ConfigError::Read {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    let mut result_lines: Vec<String> = Vec::new();
+    let mut skip_section = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with('[') {
+            if trimmed == "[[federation.peers]]" {
+                skip_section = true;
+                continue;
+            } else {
+                skip_section = false;
+            }
+        }
+
+        if skip_section {
+            continue;
+        }
+
+        result_lines.push(line.to_string());
+    }
+
+    // Remove trailing blank lines
+    while result_lines
+        .last()
+        .map(|l| l.trim().is_empty())
+        .unwrap_or(false)
+    {
+        result_lines.pop();
+    }
+
+    // Append new peer entries
+    for peer in peers {
+        result_lines.push(String::new());
+        result_lines.push("[[federation.peers]]".to_string());
+        result_lines.push(format!("name = \"{}\"", peer.name));
+        result_lines.push(format!("url = \"{}\"", peer.url));
+        if let Some(ref secret) = peer.shared_secret {
+            if !secret.is_empty() {
+                result_lines.push(format!("shared_secret = \"{}\"", secret));
+            }
+        }
+    }
+
+    result_lines.push(String::new());
+    let result = result_lines.join("\n");
+    std::fs::write(path, &result).map_err(|e| ConfigError::Read {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    Ok(())
+}
+
+/// Read federation settings from the TOML config file (for pre-filling the UI
+/// form even when federation is not currently running).
+pub(crate) fn read_federation_settings(path: &Path) -> Result<FederationConfig, ConfigError> {
+    let content = std::fs::read_to_string(path).map_err(|e| ConfigError::Read {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+
+    let expanded = substitute_env_vars(&content);
+    let config: Config = toml::from_str(&expanded)?;
+    Ok(config.federation)
+}
+
 /// Read the Discord token from the TOML config file (without full Config::load).
 pub(crate) fn read_discord_token(path: &Path) -> Result<Option<String>, ConfigError> {
     let content = std::fs::read_to_string(path).map_err(|e| ConfigError::Read {

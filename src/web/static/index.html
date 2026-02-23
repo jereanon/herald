@@ -1581,32 +1581,63 @@
             <!-- Federation section -->
             <div class="settings-section" data-tab="federation">
                 <h3>Federation</h3>
-                <div id="federationDisabled" style="color:var(--text-secondary);line-height:1.5;display:none">
-                    <p>Federation is <strong>disabled</strong>. Enable it in your config file to connect
-                    multiple herald instances together.</p>
-                    <pre style="background:var(--bg-secondary);padding:12px;border-radius:8px;margin-top:12px;font-size:12px;overflow-x:auto">[federation]
-enabled = true
-instance_name = "my-herald"
-shared_secret = "your-shared-secret"
-mdns_enabled = true</pre>
+
+                <!-- Configuration Form -->
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+                    <input type="checkbox" id="fedEnabled" style="accent-color:var(--accent);cursor:pointer;width:16px;height:16px" onchange="toggleFedFields()">
+                    <label for="fedEnabled" style="font-weight:600;cursor:pointer;margin:0">Enable Federation</label>
                 </div>
-                <div id="federationEnabled" style="display:none">
-                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-                        <div style="display:flex;align-items:center;gap:8px">
-                            <span style="width:8px;height:8px;border-radius:50%;background:#4caf50;display:inline-block"></span>
-                            <span style="font-weight:600" id="fedInstanceName">—</span>
-                        </div>
-                        <span class="cron-status-badge active" id="fedMdnsBadge" style="display:none">mDNS</span>
+
+                <div id="fedConfigFields">
+                    <div class="settings-field">
+                        <label for="fedInstanceNameInput">Instance Name</label>
+                        <input type="text" id="fedInstanceNameInput" placeholder="my-herald">
+                    </div>
+                    <div class="settings-field">
+                        <label for="fedSharedSecret">Shared Secret <span style="font-weight:normal;color:var(--text-secondary);font-size:12px" id="fedSecretHint"></span></label>
+                        <input type="password" id="fedSharedSecret" placeholder="Enter shared secret for authentication">
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+                        <input type="checkbox" id="fedMdnsEnabled" style="accent-color:var(--accent);cursor:pointer;width:16px;height:16px" checked>
+                        <label for="fedMdnsEnabled" style="cursor:pointer;margin:0">Enable mDNS Discovery</label>
+                    </div>
+                    <div class="settings-field">
+                        <label for="fedPort">Port <span style="font-weight:normal;color:var(--text-secondary);font-size:12px">(optional, defaults to gateway port + 1)</span></label>
+                        <input type="number" id="fedPort" placeholder="Auto">
+                    </div>
+
+                    <!-- Static Peers -->
+                    <h4 style="font-size:13px;font-weight:600;margin:20px 0 8px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">Static Peers</h4>
+                    <div id="fedPeersConfig" style="display:flex;flex-direction:column;gap:8px"></div>
+                    <div style="margin-top:8px">
+                        <button class="settings-btn-secondary" onclick="addFedPeerRow()">+ Add Peer</button>
+                    </div>
+                </div>
+
+                <div class="settings-actions">
+                    <button class="settings-btn" onclick="saveFederationSettings()">Save Federation Settings</button>
+                </div>
+                <div class="settings-status" id="fedStatus"></div>
+
+                <!-- Live Status (only shown when federation is running) -->
+                <div id="federationLiveStatus" style="display:none;margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
+                    <h4 style="font-size:13px;font-weight:600;margin:0 0 12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">
+                        Live Status
+                        <span style="width:8px;height:8px;border-radius:50%;background:#4caf50;display:inline-block;margin-left:6px;vertical-align:middle"></span>
+                    </h4>
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                        <span style="font-weight:600" id="fedLiveInstanceName">—</span>
+                        <span class="cron-status-badge active" id="fedLiveMdnsBadge" style="display:none">mDNS</span>
                     </div>
 
                     <!-- Peers -->
-                    <h4 style="font-size:13px;font-weight:600;margin:20px 0 8px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">Peers</h4>
+                    <h4 style="font-size:12px;font-weight:600;margin:16px 0 6px;color:var(--text-secondary)">Peers</h4>
                     <div id="fedPeerList" style="display:flex;flex-direction:column;gap:8px">
                         <div style="color:var(--text-secondary);font-size:13px;font-style:italic;padding:8px 0">No peers discovered yet.</div>
                     </div>
 
                     <!-- Remote Agents -->
-                    <h4 style="font-size:13px;font-weight:600;margin:20px 0 8px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px">Remote Agents</h4>
+                    <h4 style="font-size:12px;font-weight:600;margin:16px 0 6px;color:var(--text-secondary)">Remote Agents</h4>
                     <div id="fedRemoteAgentList" style="display:flex;flex-direction:column;gap:8px">
                         <div style="color:var(--text-secondary);font-size:13px;font-style:italic;padding:8px 0">No remote agents available.</div>
                     </div>
@@ -3016,6 +3047,36 @@ mdns_enabled = true</pre>
         // Federation
         // ---------------------------------------------------------------------------
 
+        function toggleFedFields() {
+            const enabled = document.getElementById('fedEnabled').checked;
+            const fields = document.getElementById('fedConfigFields');
+            fields.style.opacity = enabled ? '1' : '0.5';
+        }
+
+        function addFedPeerRow(name = '', url = '', hasSecret = false) {
+            const container = document.getElementById('fedPeersConfig');
+            const row = document.createElement('div');
+            row.style.cssText = 'background:var(--bg-secondary);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;position:relative';
+            row.innerHTML = `
+                <button onclick="this.parentElement.remove()" style="position:absolute;top:8px;right:8px;background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:16px;padding:2px 6px;border-radius:4px" title="Remove peer">&times;</button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <div style="flex:1;min-width:120px">
+                        <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:2px">Name</label>
+                        <input type="text" class="fed-peer-name" value="${escapeHtml(name)}" placeholder="home-herald" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;box-sizing:border-box">
+                    </div>
+                    <div style="flex:2;min-width:200px">
+                        <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:2px">URL</label>
+                        <input type="text" class="fed-peer-url" value="${escapeHtml(url)}" placeholder="http://192.168.1.50:8081" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;box-sizing:border-box">
+                    </div>
+                </div>
+                <div style="max-width:300px">
+                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:2px">Secret <span style="font-size:11px">(optional, overrides global)</span></label>
+                    <input type="password" class="fed-peer-secret" placeholder="${hasSecret ? '••••••••' : 'Leave empty to use global secret'}" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;box-sizing:border-box">
+                </div>
+            `;
+            container.appendChild(row);
+        }
+
         async function loadFederationData() {
             try {
                 const headers = {};
@@ -3025,81 +3086,170 @@ mdns_enabled = true</pre>
                 if (!resp.ok) return;
                 const data = await resp.json();
                 const fed = data.federation;
+                if (!fed) return;
 
-                if (!fed || !fed.enabled) {
-                    document.getElementById('federationDisabled').style.display = 'block';
-                    document.getElementById('federationEnabled').style.display = 'none';
-                    return;
+                // Populate config form from saved config values
+                const cfg = fed.config || {};
+                document.getElementById('fedEnabled').checked = cfg.enabled || false;
+                document.getElementById('fedInstanceNameInput').value = cfg.instance_name || '';
+                document.getElementById('fedMdnsEnabled').checked = cfg.mdns_enabled !== false;
+                document.getElementById('fedPort').value = cfg.port || '';
+
+                // Secret hint
+                const secretHint = document.getElementById('fedSecretHint');
+                if (cfg.shared_secret_set) {
+                    secretHint.textContent = '(currently set)';
+                    document.getElementById('fedSharedSecret').placeholder = '••••••••  (leave empty to keep current)';
+                } else {
+                    secretHint.textContent = '';
+                    document.getElementById('fedSharedSecret').placeholder = 'Enter shared secret for authentication';
                 }
 
-                document.getElementById('federationDisabled').style.display = 'none';
-                document.getElementById('federationEnabled').style.display = 'block';
+                // Populate static peers from config
+                const peersContainer = document.getElementById('fedPeersConfig');
+                peersContainer.innerHTML = '';
+                const configPeers = cfg.peers || [];
+                configPeers.forEach(p => addFedPeerRow(p.name, p.url, p.has_secret));
 
-                // Instance name
-                document.getElementById('fedInstanceName').textContent = fed.instance_name || '—';
+                toggleFedFields();
 
-                // mDNS badge
-                const mdnsBadge = document.getElementById('fedMdnsBadge');
-                if (fed.mdns_enabled) {
-                    mdnsBadge.style.display = 'inline-block';
+                // Live status section — only when federation is actually running
+                const liveSection = document.getElementById('federationLiveStatus');
+                if (fed.enabled) {
+                    liveSection.style.display = 'block';
+
+                    // Instance name
+                    document.getElementById('fedLiveInstanceName').textContent = fed.instance_name || '—';
+
+                    // mDNS badge
+                    const mdnsBadge = document.getElementById('fedLiveMdnsBadge');
+                    mdnsBadge.style.display = fed.mdns_enabled ? 'inline-block' : 'none';
+
+                    // Live peers list
+                    const peerList = document.getElementById('fedPeerList');
+                    const livePeers = fed.live_peers || [];
+                    if (livePeers.length === 0) {
+                        peerList.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;font-style:italic;padding:8px 0">No peers discovered yet.</div>';
+                    } else {
+                        peerList.innerHTML = '';
+                        livePeers.forEach(peer => {
+                            const healthColor = peer.health === 'Healthy' ? '#4caf50' :
+                                               peer.health === 'Unhealthy' ? '#f44336' : '#ff9800';
+                            const healthLabel = peer.health === 'Healthy' ? 'Healthy' :
+                                               peer.health === 'Unhealthy' ? 'Unhealthy' : 'Unknown';
+                            const agentNames = (peer.agents || []).join(', ') || 'none discovered';
+                            const sourceBadge = peer.source === 'Mdns' ? '<span class="cron-status-badge active" style="margin-left:6px;font-size:10px">mDNS</span>' : '';
+
+                            const div = document.createElement('div');
+                            div.style.cssText = 'background:var(--bg-secondary);border-radius:8px;padding:12px;';
+                            div.innerHTML = `
+                                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                                    <span style="width:8px;height:8px;border-radius:50%;background:${healthColor};display:inline-block;flex-shrink:0"></span>
+                                    <span style="font-weight:600;font-size:14px">${escapeHtml(peer.name)}</span>
+                                    <span class="cron-status-badge" style="background:${healthColor}20;color:${healthColor}">${healthLabel}</span>
+                                    ${sourceBadge}
+                                </div>
+                                <div style="font-size:12px;color:var(--text-secondary);margin-left:16px">${escapeHtml(peer.url)}</div>
+                                <div style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 16px">Agents: ${escapeHtml(agentNames)}</div>
+                            `;
+                            peerList.appendChild(div);
+                        });
+                    }
+
+                    // Remote agents list
+                    const agentList = document.getElementById('fedRemoteAgentList');
+                    const remoteAgents = fed.remote_agents || [];
+                    if (remoteAgents.length === 0) {
+                        agentList.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;font-style:italic;padding:8px 0">No remote agents available.</div>';
+                    } else {
+                        agentList.innerHTML = '';
+                        remoteAgents.forEach(agent => {
+                            const div = document.createElement('div');
+                            div.className = 'cron-job';
+                            div.innerHTML = `
+                                <div class="cron-job-header">
+                                    <span class="cron-job-name">${escapeHtml(agent.name)}
+                                        <span class="cron-status-badge active" style="margin-left:6px">${escapeHtml(agent.instance)}</span>
+                                    </span>
+                                </div>
+                                <div class="cron-job-detail">${escapeHtml(agent.personality || '')}${agent.model ? ' &middot; ' + escapeHtml(agent.model) : ''}</div>
+                            `;
+                            agentList.appendChild(div);
+                        });
+                    }
                 } else {
-                    mdnsBadge.style.display = 'none';
-                }
-
-                // Peers list
-                const peerList = document.getElementById('fedPeerList');
-                const peers = fed.peers || [];
-                if (peers.length === 0) {
-                    peerList.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;font-style:italic;padding:8px 0">No peers discovered yet.</div>';
-                } else {
-                    peerList.innerHTML = '';
-                    peers.forEach(peer => {
-                        const healthColor = peer.health === 'Healthy' ? '#4caf50' :
-                                           peer.health === 'Unhealthy' ? '#f44336' : '#ff9800';
-                        const healthLabel = peer.health === 'Healthy' ? 'Healthy' :
-                                           peer.health === 'Unhealthy' ? 'Unhealthy' : 'Unknown';
-                        const agentNames = (peer.agents || []).join(', ') || 'none discovered';
-                        const sourceBadge = peer.source === 'Mdns' ? '<span class="cron-status-badge active" style="margin-left:6px;font-size:10px">mDNS</span>' : '';
-
-                        const div = document.createElement('div');
-                        div.style.cssText = 'background:var(--bg-secondary);border-radius:8px;padding:12px;';
-                        div.innerHTML = `
-                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-                                <span style="width:8px;height:8px;border-radius:50%;background:${healthColor};display:inline-block;flex-shrink:0"></span>
-                                <span style="font-weight:600;font-size:14px">${escapeHtml(peer.name)}</span>
-                                <span class="cron-status-badge" style="background:${healthColor}20;color:${healthColor}">${healthLabel}</span>
-                                ${sourceBadge}
-                            </div>
-                            <div style="font-size:12px;color:var(--text-secondary);margin-left:16px">${escapeHtml(peer.url)}</div>
-                            <div style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 16px">Agents: ${escapeHtml(agentNames)}</div>
-                        `;
-                        peerList.appendChild(div);
-                    });
-                }
-
-                // Remote agents list
-                const agentList = document.getElementById('fedRemoteAgentList');
-                const remoteAgents = fed.remote_agents || [];
-                if (remoteAgents.length === 0) {
-                    agentList.innerHTML = '<div style="color:var(--text-secondary);font-size:13px;font-style:italic;padding:8px 0">No remote agents available.</div>';
-                } else {
-                    agentList.innerHTML = '';
-                    remoteAgents.forEach(agent => {
-                        const div = document.createElement('div');
-                        div.className = 'cron-job';
-                        div.innerHTML = `
-                            <div class="cron-job-header">
-                                <span class="cron-job-name">${escapeHtml(agent.name)}
-                                    <span class="cron-status-badge active" style="margin-left:6px">${escapeHtml(agent.instance)}</span>
-                                </span>
-                            </div>
-                            <div class="cron-job-detail">${escapeHtml(agent.personality || '')}${agent.model ? ' &middot; ' + escapeHtml(agent.model) : ''}</div>
-                        `;
-                        agentList.appendChild(div);
-                    });
+                    liveSection.style.display = 'none';
                 }
             } catch (e) {
                 // Silently fail
+            }
+        }
+
+        async function saveFederationSettings() {
+            const statusEl = document.getElementById('fedStatus');
+            statusEl.textContent = '';
+            statusEl.className = 'settings-status';
+
+            const enabled = document.getElementById('fedEnabled').checked;
+            const instanceName = document.getElementById('fedInstanceNameInput').value.trim();
+            const secretInput = document.getElementById('fedSharedSecret').value;
+            const mdnsEnabled = document.getElementById('fedMdnsEnabled').checked;
+            const portValue = document.getElementById('fedPort').value.trim();
+
+            // Collect peers
+            const peerRows = document.querySelectorAll('#fedPeersConfig > div');
+            const peers = [];
+            for (const row of peerRows) {
+                const name = row.querySelector('.fed-peer-name').value.trim();
+                const url = row.querySelector('.fed-peer-url').value.trim();
+                const secret = row.querySelector('.fed-peer-secret').value;
+                if (name || url) {
+                    const peer = { name, url };
+                    if (secret) peer.shared_secret = secret;
+                    peers.push(peer);
+                }
+            }
+
+            const body = {
+                enabled,
+                mdns_enabled: mdnsEnabled,
+                peers,
+            };
+
+            if (instanceName) body.instance_name = instanceName;
+            if (secretInput) body.shared_secret = secretInput;
+            if (portValue) body.port = parseInt(portValue, 10);
+
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+                const resp = await fetch('/api/settings/federation', {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify(body),
+                });
+
+                const result = await resp.json();
+
+                if (!resp.ok) {
+                    statusEl.textContent = result.error || 'Failed to save settings';
+                    statusEl.className = 'settings-status error';
+                    return;
+                }
+
+                if (result.restart_required) {
+                    statusEl.innerHTML = 'Settings saved. <strong>Restart Herald</strong> to apply changes.';
+                } else {
+                    statusEl.textContent = 'Settings saved.';
+                }
+                statusEl.className = 'settings-status success';
+
+                // Refresh the form to reflect saved state
+                await loadFederationData();
+            } catch (e) {
+                statusEl.textContent = 'Network error saving settings';
+                statusEl.className = 'settings-status error';
             }
         }
 

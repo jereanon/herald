@@ -493,12 +493,48 @@ pub async fn get_settings(State(state): State<AppState>, headers: HeaderMap) -> 
     let auth_source = state.auth_source.read().await.clone();
     let discord_state = state.discord_manager.state().await;
 
-    // Build federation info
+    // Build federation info — always include saved config values for UI form
+    let saved_fed_config = config::read_federation_settings(&state.config_path).ok();
+
+    let fed_config_json = if let Some(ref cfg) = saved_fed_config {
+        let peers_json: Vec<serde_json::Value> = cfg
+            .peers
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "name": p.name,
+                    "url": p.url,
+                    "has_secret": p.shared_secret.is_some(),
+                })
+            })
+            .collect();
+
+        serde_json::json!({
+            "enabled": cfg.enabled,
+            "instance_name": cfg.instance_name,
+            "shared_secret_set": cfg.shared_secret.is_some(),
+            "mdns_enabled": cfg.mdns_enabled,
+            "port": cfg.port,
+            "exposed_agents": cfg.exposed_agents,
+            "peers": peers_json,
+        })
+    } else {
+        serde_json::json!({
+            "enabled": false,
+            "instance_name": "",
+            "shared_secret_set": false,
+            "mdns_enabled": true,
+            "port": null,
+            "exposed_agents": [],
+            "peers": [],
+        })
+    };
+
     let federation = if let Some(ref fed) = state.federation_service {
         let peers = fed.registry().list_peers().await;
         let remote_agents = fed.registry().remote_agents().await;
 
-        let peers_json: Vec<serde_json::Value> = peers
+        let live_peers_json: Vec<serde_json::Value> = peers
             .iter()
             .map(|p| {
                 serde_json::json!({
@@ -527,12 +563,14 @@ pub async fn get_settings(State(state): State<AppState>, headers: HeaderMap) -> 
             "enabled": true,
             "instance_name": fed.instance_name(),
             "mdns_enabled": fed.mdns_enabled(),
-            "peers": peers_json,
+            "live_peers": live_peers_json,
             "remote_agents": remote_agents_json,
+            "config": fed_config_json,
         })
     } else {
         serde_json::json!({
             "enabled": false,
+            "config": fed_config_json,
         })
     };
 
@@ -785,6 +823,135 @@ pub async fn update_discord(
         )
             .into_response()
     }
+}
+
+// ---------------------------------------------------------------------------
+// PUT /api/settings/federation
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct FederationPeerUpdate {
+    pub name: String,
+    pub url: String,
+    pub shared_secret: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateFederationRequest {
+    pub enabled: bool,
+    pub instance_name: Option<String>,
+    /// `None` means "don't change the existing secret".
+    pub shared_secret: Option<String>,
+    pub mdns_enabled: Option<bool>,
+    pub port: Option<u16>,
+    pub exposed_agents: Option<Vec<String>>,
+    pub peers: Option<Vec<FederationPeerUpdate>>,
+}
+
+pub async fn update_federation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateFederationRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    // Validate instance_name if provided
+    if let Some(ref name) = request.instance_name {
+        let name = name.trim();
+        if name.is_empty() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "instance_name must not be empty".into(),
+                    code: "bad_request".into(),
+                }),
+            )
+                .into_response();
+        }
+    }
+
+    // Validate peer URLs if provided
+    if let Some(ref peers) = request.peers {
+        for peer in peers {
+            if peer.name.trim().is_empty() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "Peer name must not be empty".into(),
+                        code: "bad_request".into(),
+                    }),
+                )
+                    .into_response();
+            }
+            if peer.url.trim().is_empty() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: format!("URL must not be empty for peer \"{}\"", peer.name),
+                        code: "bad_request".into(),
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    // Save federation settings to config file
+    let settings = config::FederationSettingsUpdate {
+        enabled: request.enabled,
+        instance_name: request.instance_name.map(|n| n.trim().to_string()),
+        shared_secret: request.shared_secret,
+        mdns_enabled: request.mdns_enabled.unwrap_or(true),
+        port: request.port,
+        exposed_agents: request.exposed_agents.unwrap_or_default(),
+    };
+
+    if let Err(e) = config::save_federation_settings(&state.config_path, &settings) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Failed to save federation settings: {}", e),
+                code: "config_write_error".into(),
+            }),
+        )
+            .into_response();
+    }
+
+    // Save peers if provided
+    if let Some(peers) = request.peers {
+        let peer_configs: Vec<config::FederationPeerConfig> = peers
+            .into_iter()
+            .map(|p| config::FederationPeerConfig {
+                name: p.name.trim().to_string(),
+                url: p.url.trim().to_string(),
+                shared_secret: p.shared_secret.filter(|s| !s.is_empty()),
+            })
+            .collect();
+
+        if let Err(e) = config::save_federation_peers(&state.config_path, &peer_configs) {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to save federation peers: {}", e),
+                    code: "config_write_error".into(),
+                }),
+            )
+                .into_response();
+        }
+    }
+
+    eprintln!("[settings] Federation settings saved to config file");
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "restart_required": true,
+        })),
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------

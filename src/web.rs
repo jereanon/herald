@@ -113,6 +113,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/settings", get(handlers::get_settings))
         .route("/settings/provider", put(handlers::update_provider))
         .route("/settings/discord", put(handlers::update_discord))
+        .route("/settings/federation", put(handlers::update_federation))
         .route("/settings/provider/detect", post(handlers::detect_provider))
         .route("/channels", get(handlers::list_channels))
         .route("/cron", get(handlers::list_cron_jobs))
