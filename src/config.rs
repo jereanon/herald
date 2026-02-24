@@ -1003,43 +1003,43 @@ fn refresh_oauth_token(
     refresh_token: &str,
     current_creds: &serde_json::Value,
 ) -> Option<String> {
-    // POST to Anthropic's OAuth token endpoint
+    // POST to Anthropic's OAuth token endpoint using reqwest (no curl dependency)
     let body = format!(
         "grant_type=refresh_token&refresh_token={}&client_id={}",
         refresh_token, CLAUDE_OAUTH_CLIENT_ID
     );
 
-    let output = match std::process::Command::new("curl")
-        .args([
-            "-s",
-            "-X",
-            "POST",
-            "https://console.anthropic.com/v1/oauth/token",
-            "-H",
-            "Content-Type: application/x-www-form-urlencoded",
-            "-d",
-            &body,
-        ])
-        .output()
+    let client = reqwest::blocking::Client::new();
+    let http_resp = match client
+        .post("https://console.anthropic.com/v1/oauth/token")
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(body)
+        .send()
     {
-        Ok(o) => o,
+        Ok(r) => r,
         Err(e) => {
-            hlog!("[config] curl failed to execute: {}", e);
+            hlog!("[config] OAuth refresh HTTP request failed: {}", e);
             return None;
         }
     };
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    let status = http_resp.status();
+    let resp_str = match http_resp.text() {
+        Ok(t) => t,
+        Err(e) => {
+            hlog!("[config] failed to read refresh response body: {}", e);
+            return None;
+        }
+    };
+
+    if !status.is_success() {
         hlog!(
-            "[config] curl exited with {}: {}",
-            output.status,
-            stderr.trim()
+            "[config] OAuth refresh returned HTTP {}: {}",
+            status,
+            &resp_str[..resp_str.len().min(200)]
         );
-        return None;
     }
 
-    let resp_str = String::from_utf8_lossy(&output.stdout).to_string();
     let resp: serde_json::Value = match serde_json::from_str(resp_str.trim()) {
         Ok(v) => v,
         Err(e) => {
