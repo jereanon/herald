@@ -2060,7 +2060,7 @@
                 case 'text_delta':
                     removeTypingIndicator();
                     if (!streamingElement) {
-                        streamingElement = addMessage(getActiveAgentName(), '');
+                        streamingElement = addMessage(getActiveAgentName(), '', null, new Date().toISOString());
                         streamingText = '';
                     }
                     streamingText += msg.content;
@@ -2085,7 +2085,7 @@
                         streamingElement = null;
                         streamingText = '';
                     } else {
-                        addMessage(agentName, msg.message);
+                        addMessage(agentName, msg.message, null, new Date().toISOString());
                     }
                     if (msg.namespace) {
                         currentNamespace = msg.namespace;
@@ -2105,7 +2105,7 @@
                         streamingElement = null;
                         streamingText = '';
                     }
-                    addMessage(getActiveAgentName(), `Error: ${msg.error}`);
+                    addMessage(getActiveAgentName(), `Error: ${msg.error}`, null, new Date().toISOString());
                     isStreaming = false;
                     document.getElementById('sendBtn').disabled = false;
                     break;
@@ -2143,7 +2143,7 @@
             const empty = document.getElementById('emptyState');
             if (empty) empty.style.display = 'none';
 
-            addMessage('user', text);
+            addMessage('user', text, null, new Date().toISOString());
             input.value = '';
             autoResize(input);
 
@@ -2189,15 +2189,15 @@
                 const data = await resp.json();
                 removeTypingIndicator();
                 if (resp.ok) {
-                    addMessage(data.agent || getActiveAgentName(), data.message);
+                    addMessage(data.agent || getActiveAgentName(), data.message, null, new Date().toISOString());
                     currentNamespace = data.namespace;
                     loadSessions();
                 } else {
-                    addMessage(getActiveAgentName(), `Error: ${data.error}`);
+                    addMessage(getActiveAgentName(), `Error: ${data.error}`, null, new Date().toISOString());
                 }
             } catch (e) {
                 removeTypingIndicator();
-                addMessage(getActiveAgentName(), `Connection error: ${e.message}`);
+                addMessage(getActiveAgentName(), `Connection error: ${e.message}`, null, new Date().toISOString());
             }
 
             isStreaming = false;
@@ -2587,11 +2587,11 @@
                         const prev = data.messages[i - 1];
                         const match = prev?.content?.match(/^\[(?:cron:|scheduled task:\s*)([^\]]+)\]/);
                         const taskName = match ? match[1] : 'Scheduled';
-                        addMessage(displayRole, m.content, taskName);
+                        addMessage(displayRole, m.content, taskName, m.timestamp);
                         return;
                     }
                     skipNext = false;
-                    addMessage(displayRole, m.content);
+                    addMessage(displayRole, m.content, null, m.timestamp);
                 });
 
                 // Find session name and working directory from sidebar data

@@ -339,6 +339,9 @@ pub struct SessionDetail {
 pub struct MessageInfo {
     pub role: String,
     pub content: String,
+    /// ISO-8601 timestamp for when this message was created.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -385,6 +388,7 @@ pub async fn get_session(
                                     .map(|m| MessageInfo {
                                         role: m.role,
                                         content: m.content,
+                                        timestamp: None,
                                     })
                                     .collect(),
                                 created_at: remote_detail.created_at,
@@ -446,6 +450,7 @@ pub async fn get_session(
                     .map(|m| MessageInfo {
                         role: format!("{:?}", m.role).to_lowercase(),
                         content: m.content.clone(),
+                        timestamp: Some(m.timestamp.to_rfc3339()),
                     })
                     .collect(),
                 created_at: session.created_at.to_rfc3339(),
