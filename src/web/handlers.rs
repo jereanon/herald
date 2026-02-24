@@ -429,6 +429,20 @@ pub async fn get_session(
                 messages: session
                     .messages
                     .iter()
+                    .filter(|m| {
+                        // Skip tool-result messages (user messages that carry
+                        // tool output but no human-authored content) and
+                        // assistant messages that only contain tool calls with
+                        // no visible text.  These are internal plumbing and
+                        // showing them causes empty chat bubbles in the UI.
+                        if !m.tool_results.is_empty() {
+                            return false;
+                        }
+                        if !m.tool_calls.is_empty() && m.content.is_empty() {
+                            return false;
+                        }
+                        true
+                    })
                     .map(|m| MessageInfo {
                         role: format!("{:?}", m.role).to_lowercase(),
                         content: m.content.clone(),

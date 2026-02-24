@@ -2570,10 +2570,9 @@
                 let skipNext = false;
                 data.messages.forEach((m, i) => {
                     if (m.role === 'system') return;
-                    // Hide tool-result messages (role "user" with no text
-                    // content — they carry tool_use_id / structured results
-                    // that aren't meaningful to display).
-                    if (m.role === 'user' && (!m.content || !m.content.trim())) return;
+                    // Skip messages with no visible content (e.g. tool-result
+                    // plumbing that slipped through the backend filter).
+                    if (!m.content || m.content.trim() === '') return;
                     // Hide cron/scheduled-task injected user prompts; show
                     // the next assistant response as a scheduled message.
                     if (m.role === 'user' && (m.content.startsWith('[cron:') || m.content.startsWith('[scheduled task:'))) {

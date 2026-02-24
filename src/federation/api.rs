@@ -226,6 +226,17 @@ pub async fn get_session_detail(
                 messages: session
                     .messages
                     .iter()
+                    .filter(|m| {
+                        // Skip tool-result and tool-call-only messages (internal
+                        // plumbing) so remote UIs don't render empty bubbles.
+                        if !m.tool_results.is_empty() {
+                            return false;
+                        }
+                        if !m.tool_calls.is_empty() && m.content.is_empty() {
+                            return false;
+                        }
+                        true
+                    })
                     .map(|m| FederatedMessageInfo {
                         role: format!("{:?}", m.role).to_lowercase(),
                         content: m.content.clone(),
