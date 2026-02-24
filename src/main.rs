@@ -614,30 +614,30 @@ async fn main() {
                     CronPayload::AgentTurn { prompt } => prompt.clone(),
                     CronPayload::SystemEvent { message } => message.clone(),
                 };
-                // If the job targets an existing session (e.g. web:uuid),
-                // use that namespace directly so messages appear in the
-                // user's session. Otherwise prefix with cron: to create
-                // a dedicated cron session.
-                let is_web = job.namespace.starts_with("web:");
-                let ns = if is_web {
+                // Resolve the namespace for this job:
+                //   - "web:<uuid>"  → write into that existing web session
+                //   - "web"         → create a dedicated web session for this
+                //                     job so it appears in the sidebar
+                //   - anything else → prefix with cron: for a background session
+                let ns = if job.namespace.starts_with("web:") {
                     Namespace::parse(&job.namespace)
+                } else if job.namespace == "web" {
+                    // Use a stable namespace derived from the job ID so the
+                    // same job always reuses the same session.
+                    Namespace::parse(&format!("web:cron-{}", job.id))
                 } else {
                     Namespace::parse(&format!("cron:{}", job.namespace))
                 };
-                // For web sessions, tell the LLM to just respond with text
+                let is_web = ns.key().starts_with("web:");
+
+                // For web sessions, tell the LLM to respond with text
                 // instead of trying to use Discord's send_message tool.
-                // Prefix with [cron] marker so the UI can style/hide it.
-                let prompt = if is_web {
-                    format!(
-                        "[cron:{}] {}\n\n\
-                             (This is a scheduled task running in a web chat session. \
-                             Respond with text directly — do not use send_message \
-                             or any Discord tools.)",
-                        job.name, raw_prompt
-                    )
-                } else {
-                    raw_prompt
-                };
+                let prompt = format!(
+                    "[scheduled task: {}] {}\n\n\
+                         (This is a scheduled task. Respond with text directly — \
+                         do not use send_message or any Discord tools.)",
+                    job.name, raw_prompt
+                );
 
                 // Defer if an interactive chat is in-flight to avoid
                 // saturating the shared API key.
@@ -667,18 +667,22 @@ async fn main() {
                     }
                 };
 
-                // If auto_approve is set, force chaos_mode on the session
-                // before the runtime loads it (the approval hook reads
-                // chaos_mode from session metadata in after_session_load).
-                if job.auto_approve.unwrap_or(false) {
+                // Ensure the session exists with a friendly name (so it
+                // appears in the sidebar) and set chaos_mode if auto_approve.
+                {
                     let mut session = match store.load(&ns).await {
                         Ok(Some(s)) => s,
                         _ => orra::store::Session::new(ns.clone()),
                     };
-                    session.metadata.insert(
-                        "chaos_mode".into(),
-                        serde_json::json!(true),
-                    );
+                    // Give it the job name so the sidebar shows something useful
+                    session.metadata.entry("name".into())
+                        .or_insert_with(|| serde_json::json!(format!("Task: {}", job.name)));
+                    if job.auto_approve.unwrap_or(false) {
+                        session.metadata.insert(
+                            "chaos_mode".into(),
+                            serde_json::json!(true),
+                        );
+                    }
                     let _ = store.save(&session).await;
                 }
 
