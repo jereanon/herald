@@ -790,7 +790,50 @@ async fn main() {
     );
 
     if !dynamic_provider.is_configured() {
-        hlog!("[init] Provider not configured — visit the web UI to set your API key.");
+        hlog!("[init] Provider not configured — will retry credential detection in background.");
+    }
+
+    // --- Background credential recovery ---
+    // Periodically attempt to re-detect CLI credentials if the provider is
+    // unconfigured (or was unconfigured at startup). This handles the case
+    // where the OAuth token expires while Herald is stopped, the refresh
+    // fails at startup, but Claude CLI later refreshes the token externally.
+    {
+        let dp = dynamic_provider.clone();
+        let model = config.provider.model.clone();
+        let api_url = config.provider.api_url.clone();
+        let auth_src = app_state.auth_source.clone();
+        let rcb = refresh_callback.clone();
+        tokio::spawn(async move {
+            // Check every 5 minutes
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            interval.tick().await; // skip immediate tick
+            loop {
+                interval.tick().await;
+                // Only attempt recovery if provider is unconfigured
+                if dp.is_configured() {
+                    continue;
+                }
+                hlog!("[auth] provider unconfigured, attempting credential recovery...");
+                let model = model.clone();
+                let api_url = api_url.clone();
+                let token = tokio::task::spawn_blocking(move || {
+                    config::read_claude_cli_credentials()
+                })
+                .await
+                .ok()
+                .flatten();
+                if let Some(token) = token {
+                    let raw: Arc<dyn Provider> = Arc::new(ClaudeProvider::new(&token, &model));
+                    let refreshable: Arc<dyn Provider> = Arc::new(
+                        refreshable_provider::RefreshableProvider::new(raw, rcb.clone()),
+                    );
+                    dp.swap(refreshable).await;
+                    *auth_src.write().await = "cli".to_string();
+                    hlog!("[auth] credential recovery successful — provider is now configured");
+                }
+            }
+        });
     }
     if config.gateway.api_key.is_none() {
         hlog!("[init] \u{26a0} Gateway has no API key — all endpoints are unauthenticated.");

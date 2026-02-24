@@ -849,14 +849,27 @@ fn read_claude_cli_credentials_file() -> Option<String> {
         PathBuf::from(&home).join(".claude").join(".credentials.json")
     };
 
-    let json_str = std::fs::read_to_string(&creds_path).ok()?;
+    let json_str = match std::fs::read_to_string(&creds_path) {
+        Ok(s) => s,
+        Err(e) => {
+            hlog!("[config] cannot read {}: {}", creds_path.display(), e);
+            return None;
+        }
+    };
     let json_str = json_str.trim();
 
     if json_str.is_empty() {
+        hlog!("[config] credentials file is empty: {}", creds_path.display());
         return None;
     }
 
-    let parsed: serde_json::Value = serde_json::from_str(json_str).ok()?;
+    let parsed: serde_json::Value = match serde_json::from_str(json_str) {
+        Ok(v) => v,
+        Err(e) => {
+            hlog!("[config] credentials file parse error: {}", e);
+            return None;
+        }
+    };
     extract_oauth_token(&parsed, &CredentialStore::File(creds_path))
 }
 
@@ -936,10 +949,23 @@ fn extract_oauth_token(
     parsed: &serde_json::Value,
     store: &CredentialStore,
 ) -> Option<String> {
-    let oauth = parsed.get("claudeAiOauth")?;
-    let token = oauth.get("accessToken")?.as_str()?;
+    let oauth = match parsed.get("claudeAiOauth") {
+        Some(v) => v,
+        None => {
+            hlog!("[config] credentials missing 'claudeAiOauth' key");
+            return None;
+        }
+    };
+    let token = match oauth.get("accessToken").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => {
+            hlog!("[config] credentials missing 'accessToken'");
+            return None;
+        }
+    };
 
     if token.is_empty() {
+        hlog!("[config] credentials accessToken is empty");
         return None;
     }
 
@@ -952,15 +978,18 @@ fn extract_oauth_token(
         let buffer_ms = 5 * 60 * 1000; // 5 minutes
 
         if now_ms + buffer_ms > expires_at {
+            let expired_ago = (now_ms.saturating_sub(expires_at)) / 1000 / 60;
+            hlog!("[config] OAuth token expired {}m ago, attempting refresh...", expired_ago);
+
             // Token is expired or expiring soon — try to refresh
             if let Some(refresh_token) = oauth.get("refreshToken").and_then(|v| v.as_str()) {
-                hlog!("[config] OAuth token expired, attempting refresh...");
                 if let Some(new_token) = refresh_oauth_token(store, refresh_token, parsed) {
                     return Some(new_token);
                 }
-                hlog!("[config] OAuth token refresh failed");
+                hlog!("[config] OAuth token refresh failed — see errors above");
                 return None;
             }
+            hlog!("[config] no refreshToken in credentials, cannot refresh");
             return None;
         }
     }
@@ -980,7 +1009,7 @@ fn refresh_oauth_token(
         refresh_token, CLAUDE_OAUTH_CLIENT_ID
     );
 
-    let output = std::process::Command::new("curl")
+    let output = match std::process::Command::new("curl")
         .args([
             "-s",
             "-X",
@@ -992,17 +1021,58 @@ fn refresh_oauth_token(
             &body,
         ])
         .output()
-        .ok()?;
+    {
+        Ok(o) => o,
+        Err(e) => {
+            hlog!("[config] curl failed to execute: {}", e);
+            return None;
+        }
+    };
 
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        hlog!(
+            "[config] curl exited with {}: {}",
+            output.status,
+            stderr.trim()
+        );
         return None;
     }
 
-    let resp_str = String::from_utf8(output.stdout).ok()?;
-    let resp: serde_json::Value = serde_json::from_str(resp_str.trim()).ok()?;
+    let resp_str = String::from_utf8_lossy(&output.stdout).to_string();
+    let resp: serde_json::Value = match serde_json::from_str(resp_str.trim()) {
+        Ok(v) => v,
+        Err(e) => {
+            hlog!("[config] refresh response parse error: {}", e);
+            hlog!("[config] raw response: {}", &resp_str[..resp_str.len().min(200)]);
+            return None;
+        }
+    };
 
-    let new_access = resp.get("access_token")?.as_str()?;
-    let new_refresh = resp.get("refresh_token")?.as_str()?;
+    // Check for OAuth error response (HTTP 200 with error body)
+    if let Some(error) = resp.get("error").and_then(|v| v.as_str()) {
+        let desc = resp
+            .get("error_description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("(no description)");
+        hlog!("[config] OAuth refresh error: {} — {}", error, desc);
+        return None;
+    }
+
+    let new_access = match resp.get("access_token").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => {
+            hlog!("[config] refresh response missing 'access_token'");
+            return None;
+        }
+    };
+    let new_refresh = match resp.get("refresh_token").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => {
+            hlog!("[config] refresh response missing 'refresh_token'");
+            return None;
+        }
+    };
     let expires_in = resp
         .get("expires_in")
         .and_then(|v| v.as_u64())
