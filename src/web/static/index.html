@@ -2501,9 +2501,13 @@
                 let skipNext = false;
                 data.messages.forEach((m, i) => {
                     if (m.role === 'system') return;
-                    // Hide cron-injected user prompts; show the next assistant
-                    // response as a scheduled message instead.
-                    if (m.role === 'user' && m.content.startsWith('[cron:')) {
+                    // Hide tool-result messages (role "user" with no text
+                    // content — they carry tool_use_id / structured results
+                    // that aren't meaningful to display).
+                    if (m.role === 'user' && (!m.content || !m.content.trim())) return;
+                    // Hide cron/scheduled-task injected user prompts; show
+                    // the next assistant response as a scheduled message.
+                    if (m.role === 'user' && (m.content.startsWith('[cron:') || m.content.startsWith('[scheduled task:'))) {
                         skipNext = true;
                         return;
                     }
@@ -2511,9 +2515,9 @@
                     const displayRole = m.role === 'assistant' ? currentAgentName : m.role;
                     if (skipNext && m.role === 'assistant') {
                         skipNext = false;
-                        // Extract task name from the preceding cron prompt
+                        // Extract task name from the preceding prompt
                         const prev = data.messages[i - 1];
-                        const match = prev?.content?.match(/^\[cron:([^\]]+)\]/);
+                        const match = prev?.content?.match(/^\[(?:cron:|scheduled task:\s*)([^\]]+)\]/);
                         const taskName = match ? match[1] : 'Scheduled';
                         addMessage(displayRole, m.content, taskName);
                         return;
