@@ -306,6 +306,20 @@ pub struct ToolsConfig {
     pub exec_allowed_commands: Vec<String>,
     #[serde(default = "default_exec_timeout")]
     pub exec_timeout_secs: u64,
+    /// Enable filesystem tools (read_file, write_file, edit_file, list_dir)
+    #[serde(default)]
+    pub filesystem: bool,
+    /// Base directory for filesystem sandboxing (if set, all paths confined here)
+    pub filesystem_base_dir: Option<String>,
+    /// Maximum file read size in bytes (default: 1 MB)
+    #[serde(default = "default_fs_max_read")]
+    pub filesystem_max_read_size: u64,
+    /// Maximum file write size in bytes (default: 5 MB)
+    #[serde(default = "default_fs_max_write")]
+    pub filesystem_max_write_size: usize,
+    /// Paths that cannot be written to
+    #[serde(default)]
+    pub filesystem_protected_paths: Vec<String>,
     #[serde(default = "bool_true")]
     pub discord: bool,
     #[serde(default)]
@@ -349,6 +363,11 @@ impl Default for ToolsConfig {
             exec: false,
             exec_allowed_commands: Vec::new(),
             exec_timeout_secs: default_exec_timeout(),
+            filesystem: false,
+            filesystem_base_dir: None,
+            filesystem_max_read_size: default_fs_max_read(),
+            filesystem_max_write_size: default_fs_max_write(),
+            filesystem_protected_paths: Vec::new(),
             discord: true,
             documents: false,
             browser: true,
@@ -371,6 +390,14 @@ fn bool_true() -> bool {
 
 fn default_exec_timeout() -> u64 {
     30
+}
+
+fn default_fs_max_read() -> u64 {
+    1_048_576
+}
+
+fn default_fs_max_write() -> usize {
+    5_242_880
 }
 
 fn default_claude_code_allowed_tools() -> Vec<String> {

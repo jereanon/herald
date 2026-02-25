@@ -1121,7 +1121,7 @@ dependencies = [
 [[package]]
 name = "orra"
 version = "0.0.2"
-source = "git+https://github.com/jereanon/orra.git?rev=1eb359a#1eb359ab17e49f725bb923493710dfd2cf857d3c"
+source = "git+https://github.com/jereanon/orra.git?rev=e5b6dea#e5b6dea931ade23f89de335693f6236ee4891c37"
 dependencies = [
  "async-trait",
  "chrono",

@@ -54,6 +54,22 @@ pub fn register_all(
         );
     }
 
+    // Filesystem tools (from orra)
+    if config.tools.filesystem {
+        let fs_config = orra::tools::filesystem::FilesystemConfig {
+            base_dir: config
+                .tools
+                .filesystem_base_dir
+                .as_ref()
+                .map(std::path::PathBuf::from),
+            max_read_size: config.tools.filesystem_max_read_size,
+            max_write_size: config.tools.filesystem_max_write_size,
+            protected_paths: config.tools.filesystem_protected_paths.clone(),
+            ..Default::default()
+        };
+        orra::tools::filesystem::register_tools(registry, fs_config);
+    }
+
     // Browser/readability tool (from orra)
     if config.tools.browser {
         orra::tools::browser::register_tool(registry);

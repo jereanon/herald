@@ -84,6 +84,15 @@ exec = false
 exec_allowed_commands = ["ls", "cat", "grep", "curl", "date", "whoami"]
 exec_timeout_secs = 30
 
+# Filesystem tools: read, write, edit files and list directories
+# When enabled without a base_dir, tools can access any path the process can.
+# Set filesystem_base_dir to sandbox all operations to a specific directory.
+filesystem = false
+# filesystem_base_dir = "/home/user/workspace"
+# filesystem_max_read_size = 1048576    # 1 MB
+# filesystem_max_write_size = 5242880   # 5 MB
+# filesystem_protected_paths = [".env", "secrets.toml"]
+
 # Document knowledge store (search/read documents)
 documents = false
 
