@@ -632,7 +632,7 @@ async fn main() {
                 } else {
                     Namespace::parse(&format!("cron:{}", job.namespace))
                 };
-                let is_web = ns.key().starts_with("web:");
+                let _is_web = ns.key().starts_with("web:");
 
                 // For web sessions, tell the LLM to respond with text
                 // instead of trying to use Discord's send_message tool.
@@ -914,7 +914,7 @@ async fn main() {
                 }
                 hlog!("[auth] provider unconfigured, attempting credential recovery...");
                 let model = model.clone();
-                let api_url = api_url.clone();
+                let _api_url = api_url.clone();
                 let token = tokio::task::spawn_blocking(move || {
                     config::read_claude_cli_credentials()
                 })

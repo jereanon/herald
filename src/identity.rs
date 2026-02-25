@@ -241,6 +241,7 @@ mod tests {
                 temperature: 0.7,
                 provider_type: crate::config::ProviderType::Claude,
                 api_url: None,
+                cheap_model: None,
             },
             tools: ToolsConfig::default(),
             sessions: SessionsConfig::default(),
