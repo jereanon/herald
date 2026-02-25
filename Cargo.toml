@@ -1,6 +1,6 @@
 [package]
 name = "herald"
-version = "0.0.8"
+version = "0.0.9"
 edition = "2021"
 description = "A self-hostable AI assistant with web UI, Discord bot, scheduled tasks, and multi-agent support. Built on orra."
 license = "MIT"
