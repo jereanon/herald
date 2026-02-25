@@ -15,6 +15,7 @@ pub mod client;
 pub mod discovery;
 pub mod manager;
 pub mod tool;
+pub mod tool_executor;
 
 use crate::hlog;
 use std::collections::HashMap;

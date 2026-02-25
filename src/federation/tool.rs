@@ -14,21 +14,28 @@ use super::manager::FederationManager;
 /// Follows the same pattern as `DelegateToAgentTool` but routes across instances.
 /// Holds a reference to `FederationManager` so it always uses the latest service
 /// after a hot-reload.
+///
+/// When delegating, the tool includes a `tool_callback_url` in the relay request
+/// so the remote peer can proxy tool calls back to this instance for local execution.
 pub struct DelegateToRemoteAgentTool {
     /// The federation manager to get the current service and registry.
     manager: Arc<FederationManager>,
     /// Name of the agent that owns this tool (for source_agent in relay).
     self_agent: String,
+    /// The gateway port, used to compute the federation port for tool callbacks.
+    gateway_port: u16,
 }
 
 impl DelegateToRemoteAgentTool {
     pub fn new(
         manager: Arc<FederationManager>,
         self_agent: String,
+        gateway_port: u16,
     ) -> Self {
         Self {
             manager,
             self_agent,
+            gateway_port,
         }
     }
 }
@@ -114,6 +121,26 @@ impl Tool for DelegateToRemoteAgentTool {
                     ))
                 })?;
 
+        // Build the tool callback URL so the remote peer can proxy tool calls
+        // back to us for local execution (with our tools, hooks, and filesystem).
+        let fed_port = service.port(self.gateway_port);
+        let (tool_callback_url, tool_callback_secret) = {
+            // The remote peer needs to reach us via HTTP. We use our machine's
+            // hostname + federation port. The remote peer must be able to
+            // resolve this hostname (works on LAN with mDNS, or with DNS).
+            let host = hostname::get()
+                .ok()
+                .and_then(|h| h.into_string().ok())
+                .unwrap_or_else(|| "localhost".into());
+            let callback_url =
+                format!("http://{}:{}/api/federation/tool-exec", host, fed_port);
+            let callback_secret = service
+                .shared_secret()
+                .unwrap_or_default()
+                .to_string();
+            (Some(callback_url), Some(callback_secret))
+        };
+
         // Create the relay request
         let request = RelayRequest {
             agent: info.name.clone(),
@@ -125,6 +152,8 @@ impl Tool for DelegateToRemoteAgentTool {
                 self.self_agent,
                 uuid::Uuid::new_v4()
             ),
+            tool_callback_url,
+            tool_callback_secret,
         };
 
         // Send the relay request

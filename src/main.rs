@@ -494,6 +494,7 @@ async fn main() {
                     federation::tool::DelegateToRemoteAgentTool::new(
                         federation_manager.clone(),
                         agent_profile.name.clone(),
+                        config.gateway.port,
                     ),
                 ));
             }

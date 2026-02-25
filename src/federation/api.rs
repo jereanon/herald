@@ -11,6 +11,7 @@
 //! | `/api/federation/sessions`           | GET    | List web sessions             |
 //! | `/api/federation/sessions/detail`    | GET    | Get a session's messages      |
 //! | `/api/federation/sessions/chat`      | POST   | Chat in a session             |
+//! | `/api/federation/tool-exec`          | POST   | Execute tool calls (callback) |
 
 use crate::hlog;
 use std::sync::Arc;
@@ -23,14 +24,16 @@ use serde::Deserialize;
 
 use orra::channels::federation::{
     FederatedMessageInfo, FederatedSessionDetail, FederatedSessionInfo, HealthStatus,
-    RelayRequest, RelayResponse, SessionChatRequest, SessionChatResponse,
+    RelayRequest, RelayResponse, SessionChatRequest, SessionChatResponse, ToolExecRequest,
+    ToolExecResponse, ToolResultInfo,
 };
 use orra::context::CharEstimator;
-use orra::message::Message;
+use orra::message::{Message, ToolCall};
 use orra::namespace::Namespace;
 use orra::runtime::Runtime;
 use orra::store::SessionStore;
 
+use super::tool_executor::RemoteToolExecutor;
 use super::FederationService;
 
 // ---------------------------------------------------------------------------
@@ -90,6 +93,10 @@ pub async fn list_agents(
 // ---------------------------------------------------------------------------
 
 /// Relay a message to a local agent on behalf of a remote peer.
+///
+/// When the request includes `tool_callback_url`, tool calls are proxied back
+/// to the originating peer instead of being executed locally. This ensures
+/// tools run on the correct machine with the correct filesystem and approval UI.
 pub async fn relay_message(
     State(state): State<FederationState>,
     headers: HeaderMap,
@@ -116,17 +123,35 @@ pub async fn relay_message(
     // Create a federation namespace for session tracking
     let ns = Namespace::parse(&request.namespace);
 
-    // Run the message through the agent's runtime
-    let result = runtime
-        .run(&ns, Message::user(&request.message))
-        .await
-        .map_err(|e| {
-            hlog!(
-                "[federation] relay to '{}' failed: {e}",
-                request.agent
-            );
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    // Run the message through the agent's runtime.
+    // If a tool callback URL is provided, use a RemoteToolExecutor to proxy
+    // tool calls back to the originating peer instead of executing locally.
+    let result = if let (Some(ref callback_url), Some(ref callback_secret)) =
+        (&request.tool_callback_url, &request.tool_callback_secret)
+    {
+        hlog!(
+            "[federation] relay to '{}' with tool callback to {}",
+            request.agent,
+            callback_url
+        );
+        let executor = Arc::new(RemoteToolExecutor::new(
+            callback_url.clone(),
+            callback_secret.clone(),
+            request.namespace.clone(),
+        ));
+        runtime
+            .run_with_executor(&ns, Message::user(&request.message), None, None, executor)
+            .await
+    } else {
+        runtime.run(&ns, Message::user(&request.message)).await
+    }
+    .map_err(|e| {
+        hlog!(
+            "[federation] relay to '{}' failed: {e}",
+            request.agent
+        );
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let response = RelayResponse {
         message: result.final_message.content,
@@ -297,6 +322,64 @@ pub async fn session_chat(
 }
 
 // ---------------------------------------------------------------------------
+// POST /api/federation/tool-exec
+// ---------------------------------------------------------------------------
+
+/// Execute tool calls locally on behalf of a remote peer.
+///
+/// This is the callback endpoint used by `RemoteToolExecutor`. When a peer
+/// delegates a task to us and we need tools executed on the originating peer,
+/// the originating peer exposes this endpoint for us to call back into.
+pub async fn execute_tools(
+    State(state): State<FederationState>,
+    headers: HeaderMap,
+    Json(request): Json<ToolExecRequest>,
+) -> Result<impl IntoResponse, StatusCode> {
+    validate_auth(&headers, &state.service)?;
+
+    let ns = Namespace::parse(&request.namespace);
+
+    // Resolve the runtime — use first available
+    let runtimes = state.runtimes.read().await;
+    let runtime = runtimes
+        .values()
+        .next()
+        .cloned()
+        .ok_or(StatusCode::NOT_FOUND)?;
+    drop(runtimes);
+
+    // Convert wire types to orra ToolCall types
+    let tool_calls: Vec<ToolCall> = request
+        .tool_calls
+        .iter()
+        .map(|tc| ToolCall {
+            id: tc.id.clone(),
+            name: tc.name.clone(),
+            arguments: tc.arguments.clone(),
+        })
+        .collect();
+
+    // Execute tools locally using the runtime's tool registry and hooks
+    let results = runtime
+        .execute_tool_calls_local(&ns, &tool_calls)
+        .await;
+
+    // Convert back to wire types
+    let response = ToolExecResponse {
+        results: results
+            .into_iter()
+            .map(|r| ToolResultInfo {
+                call_id: r.call_id,
+                content: r.content,
+                is_error: r.is_error,
+            })
+            .collect(),
+    };
+
+    Ok(Json(response))
+}
+
+// ---------------------------------------------------------------------------
 // Router builder
 // ---------------------------------------------------------------------------
 
@@ -311,5 +394,6 @@ pub fn federation_router(state: FederationState) -> axum::Router {
         .route("/api/federation/sessions", get(list_sessions))
         .route("/api/federation/sessions/detail", get(get_session_detail))
         .route("/api/federation/sessions/chat", post(session_chat))
+        .route("/api/federation/tool-exec", post(execute_tools))
         .with_state(state)
 }
