@@ -1,0 +1,31 @@
+{
+  "namespace": {
+    "segments": [
+      "web",
+      "cfa87abb-e004-40eb-bf6c-701f27d4f679"
+    ]
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "hi there."
+    },
+    {
+      "role": "assistant",
+      "content": "Hey! 👋 What's up? Need help with anything today?"
+    },
+    {
+      "role": "user",
+      "content": "yo yo"
+    },
+    {
+      "role": "assistant",
+      "content": "Hey hey! 😄 What can I help you with?"
+    }
+  ],
+  "created_at": "2026-02-22T22:13:57.680182Z",
+  "updated_at": "2026-02-22T22:40:49.743936Z",
+  "metadata": {
+    "name": "herald-2-writer-bot"
+  }
+}

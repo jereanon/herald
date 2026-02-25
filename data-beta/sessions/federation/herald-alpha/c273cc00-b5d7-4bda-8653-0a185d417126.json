@@ -1,0 +1,58 @@
+{
+  "namespace": {
+    "segments": [
+      "federation",
+      "herald-alpha",
+      "c273cc00-b5d7-4bda-8653-0a185d417126"
+    ]
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "Where are you running? What instance/server are you on?"
+    },
+    {
+      "role": "assistant",
+      "content": "Great question! Let me check what I can find out about my environment.",
+      "tool_calls": [
+        {
+          "id": "toolu_01PYvsTY7sRH1GkMBGyvT6ye",
+          "name": "exec",
+          "arguments": {
+            "command": "hostname"
+          }
+        },
+        {
+          "id": "toolu_01B6VjDdSWCoWXzyyEFMCXub",
+          "name": "exec",
+          "arguments": {
+            "command": "echo \"User: $(whoami) | OS: $(uname -s) | Arch: $(uname -m)\""
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": "",
+      "tool_results": [
+        {
+          "call_id": "toolu_01PYvsTY7sRH1GkMBGyvT6ye",
+          "content": "lancair\n",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01B6VjDdSWCoWXzyyEFMCXub",
+          "content": "User: jeremy | OS: Darwin | Arch: arm64\n",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": "Here's what I know:\n\n- **Hostname:** `lancair`\n- **OS:** macOS (Darwin) on **ARM64** (Apple Silicon)\n- **User:** `jeremy`\n- **Identity:** I'm **WriterBot**, running as part of a **Herald** instance that's connected to Discord\n\nSo I'm running on someone's local Mac — not a cloud server! Cozy little setup. 🏠\n\nI also have federation capabilities, meaning I can talk to remote agents on other Herald instances (like `herald-alpha`). But *this* instance appears to be running right here on `lancair`."
+    }
+  ],
+  "created_at": "2026-02-22T22:41:29.899734Z",
+  "updated_at": "2026-02-22T22:42:39.532039Z",
+  "metadata": {}
+}

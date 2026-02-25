@@ -694,7 +694,15 @@ async fn main() {
                 let ns_key = ns.key();
                 let model = job.model.clone();
                 let max_turns = job.max_turns;
-                match rt.run_with_model(&ns, Message::user(&prompt), model, max_turns).await {
+                let is_lightweight = job.lightweight.unwrap_or(false);
+
+                let run_result = if is_lightweight {
+                    hlog!("[cron] Running job '{}' in lightweight mode", job.name);
+                    rt.run_lightweight(&ns, Message::user(&prompt), model).await
+                } else {
+                    rt.run_with_model(&ns, Message::user(&prompt), model, max_turns).await
+                };
+                match run_result {
                     Ok(result) => {
                         hlog!(
                             "[cron] Job '{}' completed ({} turns)",
