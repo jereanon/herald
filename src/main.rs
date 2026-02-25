@@ -3,6 +3,7 @@ mod discord_manager;
 mod federation;
 mod hooks;
 mod identity;
+mod job_monitor;
 mod logging;
 mod provider_wrapper;
 mod refreshable_provider;
@@ -739,6 +740,20 @@ async fn main() {
         svc.set_callback(cron_callback).await;
 
         Some(svc.start())
+    } else {
+        None
+    };
+
+    // --- Job monitor (stuck job detection) ---
+    let _job_monitor_handle = if let Some(ref svc) = cron_service {
+        let monitor = Arc::new(job_monitor::JobMonitor::new(
+            svc.clone(),
+            store.clone(),
+            session_events_tx.clone(),
+            10, // stuck threshold: 10 minutes
+        ));
+        hlog!("[init] job monitor: enabled (stuck threshold: 10 min)");
+        Some(monitor.start())
     } else {
         None
     };
