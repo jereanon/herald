@@ -230,7 +230,7 @@ mod tests {
             agents: Vec::new(),
             discord: DiscordConfig {
                 token: Some("tok".into()),
-                filter: "mentions".into(),
+                filter: crate::config::DiscordFilter::Mentions,
                 namespace_prefix: "discord".into(),
                 allowed_users: Vec::new(),
             },
@@ -239,7 +239,7 @@ mod tests {
                 model: "claude-opus-4-6".into(),
                 max_tokens: 4096,
                 temperature: 0.7,
-                provider_type: "claude".into(),
+                provider_type: crate::config::ProviderType::Claude,
                 api_url: None,
             },
             tools: ToolsConfig::default(),

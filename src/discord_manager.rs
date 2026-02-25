@@ -2,6 +2,7 @@
 //! stopped and restarted at runtime (e.g., when the token is changed via
 //! the web UI).
 
+use crate::config::DiscordFilter;
 use crate::hlog;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,7 +22,7 @@ use orra::tools::discord::DiscordConfig;
 pub struct DiscordState {
     pub connected: bool,
     pub token_hint: String,
-    pub filter: String,
+    pub filter: DiscordFilter,
     pub allowed_users: Vec<String>,
     pub namespace_prefix: String,
 }
@@ -54,7 +55,7 @@ impl DiscordManager {
             state: RwLock::new(DiscordState {
                 connected: false,
                 token_hint: String::new(),
-                filter: "mentions".into(),
+                filter: DiscordFilter::Mentions,
                 allowed_users: Vec::new(),
                 namespace_prefix: "discord".into(),
             }),
@@ -73,7 +74,7 @@ impl DiscordManager {
     pub async fn connect(
         &self,
         token: &str,
-        filter_str: &str,
+        discord_filter: DiscordFilter,
         allowed_users: Vec<String>,
         namespace_prefix: &str,
     ) -> Result<(), String> {
@@ -81,10 +82,10 @@ impl DiscordManager {
         self.disconnect().await;
 
         let dc = DiscordConfig::new(token);
-        let filter = match filter_str {
-            "all" => MessageFilter::All,
-            "dm" => MessageFilter::DirectMessagesFrom(allowed_users.clone()),
-            _ => MessageFilter::MentionsOnly,
+        let filter = match discord_filter {
+            DiscordFilter::All => MessageFilter::All,
+            DiscordFilter::Dm => MessageFilter::DirectMessagesFrom(allowed_users.clone()),
+            DiscordFilter::Mentions => MessageFilter::MentionsOnly,
         };
 
         // Gather agent names for @mention routing
@@ -120,7 +121,7 @@ impl DiscordManager {
             let mut state = self.state.write().await;
             state.connected = true;
             state.token_hint = hint;
-            state.filter = filter_str.to_string();
+            state.filter = discord_filter;
             state.allowed_users = allowed_users;
             state.namespace_prefix = namespace_prefix.to_string();
         }
@@ -185,7 +186,7 @@ impl DiscordManager {
         self.disconnect().await;
         let mut state = self.state.write().await;
         state.token_hint = String::new();
-        state.filter = "mentions".into();
+        state.filter = DiscordFilter::Mentions;
         state.allowed_users = Vec::new();
     }
 }

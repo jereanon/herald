@@ -1,4 +1,5 @@
 use crate::hlog;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -6,6 +7,82 @@ use serde::Deserialize;
 /// Re-export AgentProfile from the library as AgentProfileConfig for
 /// backward compatibility within this crate.
 pub use orra::agent::AgentProfile as AgentProfileConfig;
+
+// ---------------------------------------------------------------------------
+// Typed enums for config values (replaces raw strings)
+// ---------------------------------------------------------------------------
+
+/// LLM provider backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderType {
+    Claude,
+    #[serde(alias = "openai")]
+    OpenAI,
+}
+
+impl Default for ProviderType {
+    fn default() -> Self {
+        Self::Claude
+    }
+}
+
+impl fmt::Display for ProviderType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Claude => write!(f, "claude"),
+            Self::OpenAI => write!(f, "openai"),
+        }
+    }
+}
+
+/// Discord message filter mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DiscordFilter {
+    Mentions,
+    All,
+    Dm,
+}
+
+impl Default for DiscordFilter {
+    fn default() -> Self {
+        Self::Mentions
+    }
+}
+
+impl fmt::Display for DiscordFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Mentions => write!(f, "mentions"),
+            Self::All => write!(f, "all"),
+            Self::Dm => write!(f, "dm"),
+        }
+    }
+}
+
+/// Session persistence backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SessionStoreType {
+    File,
+    Memory,
+}
+
+impl Default for SessionStoreType {
+    fn default() -> Self {
+        Self::File
+    }
+}
+
+impl fmt::Display for SessionStoreType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::File => write!(f, "file"),
+            Self::Memory => write!(f, "memory"),
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Top-level config
@@ -145,8 +222,8 @@ pub struct DiscordConfig {
     /// Discord bot token. Optional — if not set, Discord is disabled and
     /// the web UI will be auto-enabled.
     pub token: Option<String>,
-    #[serde(default = "default_filter")]
-    pub filter: String,
+    #[serde(default)]
+    pub filter: DiscordFilter,
     #[serde(default = "default_namespace_prefix")]
     pub namespace_prefix: String,
     /// List of Discord usernames allowed to DM the bot (used with filter = "dm").
@@ -158,15 +235,11 @@ impl Default for DiscordConfig {
     fn default() -> Self {
         Self {
             token: None,
-            filter: default_filter(),
+            filter: DiscordFilter::default(),
             namespace_prefix: default_namespace_prefix(),
             allowed_users: Vec::new(),
         }
     }
-}
-
-fn default_filter() -> String {
-    "mentions".into()
 }
 
 fn default_namespace_prefix() -> String {
@@ -184,9 +257,9 @@ pub struct ProviderConfig {
     pub max_tokens: u32,
     #[serde(default = "default_temperature")]
     pub temperature: f32,
-    /// Provider backend: "claude" (default) or "openai"
-    #[serde(default = "default_provider_type")]
-    pub provider_type: String,
+    /// Provider backend: Claude (default) or OpenAI
+    #[serde(default)]
+    pub provider_type: ProviderType,
     /// Custom API URL (for OpenAI-compatible endpoints)
     pub api_url: Option<String>,
 }
@@ -198,7 +271,7 @@ impl Default for ProviderConfig {
             model: default_model(),
             max_tokens: default_max_tokens(),
             temperature: default_temperature(),
-            provider_type: default_provider_type(),
+            provider_type: ProviderType::default(),
             api_url: None,
         }
     }
@@ -214,10 +287,6 @@ fn default_max_tokens() -> u32 {
 
 fn default_temperature() -> f32 {
     0.7
-}
-
-fn default_provider_type() -> String {
-    "claude".into()
 }
 
 #[derive(Debug, Deserialize)]
@@ -314,8 +383,8 @@ fn default_claude_code_timeout() -> u64 {
 
 #[derive(Debug, Deserialize)]
 pub struct SessionsConfig {
-    #[serde(default = "default_store_type")]
-    pub store: String,
+    #[serde(default)]
+    pub store: SessionStoreType,
     #[serde(default = "default_sessions_path")]
     pub path: PathBuf,
 }
@@ -323,14 +392,10 @@ pub struct SessionsConfig {
 impl Default for SessionsConfig {
     fn default() -> Self {
         Self {
-            store: default_store_type(),
+            store: SessionStoreType::default(),
             path: default_sessions_path(),
         }
     }
-}
-
-fn default_store_type() -> String {
-    "file".into()
 }
 
 fn default_sessions_path() -> PathBuf {
@@ -699,42 +764,15 @@ impl Config {
             }
         }
 
-        match self.discord.filter.as_str() {
-            "mentions" | "all" => {}
-            "dm" => {
-                if self.discord.allowed_users.is_empty() {
-                    return Err(ConfigError::Validation(
-                        "discord.allowed_users must not be empty when filter is \"dm\"".into(),
-                    ));
-                }
-            }
-            other => {
-                return Err(ConfigError::Validation(format!(
-                    "discord.filter must be \"mentions\", \"all\", or \"dm\", got \"{}\"",
-                    other
-                )));
-            }
+        // Discord filter: "dm" requires allowed_users
+        if self.discord.filter == DiscordFilter::Dm && self.discord.allowed_users.is_empty() {
+            return Err(ConfigError::Validation(
+                "discord.allowed_users must not be empty when filter is \"dm\"".into(),
+            ));
         }
 
-        match self.sessions.store.as_str() {
-            "file" | "memory" => {}
-            other => {
-                return Err(ConfigError::Validation(format!(
-                    "sessions.store must be \"file\" or \"memory\", got \"{}\"",
-                    other
-                )));
-            }
-        }
-
-        match self.provider.provider_type.as_str() {
-            "claude" | "openai" => {}
-            other => {
-                return Err(ConfigError::Validation(format!(
-                    "provider.provider_type must be \"claude\" or \"openai\", got \"{}\"",
-                    other
-                )));
-            }
-        }
+        // provider_type and sessions.store are now enums — serde rejects
+        // invalid values at parse time, so no manual validation needed.
 
         // Federation: require a shared secret when enabled
         if self.federation.enabled {
@@ -1731,9 +1769,9 @@ api_key = "test-key"
 "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.agent.name, "Atlas");
-        assert_eq!(config.discord.filter, "mentions");
+        assert_eq!(config.discord.filter, DiscordFilter::Mentions);
         assert_eq!(config.provider.model, "claude-opus-4-6");
-        assert_eq!(config.provider.provider_type, "claude");
+        assert_eq!(config.provider.provider_type, ProviderType::Claude);
         assert_eq!(config.provider.max_tokens, 4096);
         assert!(config.tools.web_fetch);
         assert!(config.tools.browser);
@@ -1742,7 +1780,7 @@ api_key = "test-key"
         assert!(config.memory.enabled);
         assert!(!config.scheduler.enabled);
         assert!(!config.gateway.enabled);
-        assert_eq!(config.sessions.store, "file");
+        assert_eq!(config.sessions.store, SessionStoreType::File);
     }
 
     #[test]
@@ -1787,14 +1825,24 @@ api_key = "sk-test"
     }
 
     #[test]
-    fn validation_catches_invalid_provider_type() {
+    fn serde_rejects_invalid_provider_type() {
         let toml_str = r#"
 [provider]
 api_key = "key"
 provider_type = "gpt-local"
 "#;
-        let config: Config = toml::from_str(toml_str).unwrap();
-        let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("provider_type"));
+        // Invalid enum variant is caught at parse time, not validation
+        assert!(toml::from_str::<Config>(toml_str).is_err());
+    }
+
+    #[test]
+    fn enum_display_formats() {
+        assert_eq!(ProviderType::Claude.to_string(), "claude");
+        assert_eq!(ProviderType::OpenAI.to_string(), "openai");
+        assert_eq!(DiscordFilter::Mentions.to_string(), "mentions");
+        assert_eq!(DiscordFilter::All.to_string(), "all");
+        assert_eq!(DiscordFilter::Dm.to_string(), "dm");
+        assert_eq!(SessionStoreType::File.to_string(), "file");
+        assert_eq!(SessionStoreType::Memory.to_string(), "memory");
     }
 }

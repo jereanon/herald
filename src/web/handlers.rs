@@ -65,7 +65,7 @@ pub struct StatusResponse {
 pub async fn status(State(state): State<AppState>) -> impl IntoResponse {
     Json(StatusResponse {
         provider_configured: state.dynamic_provider.is_configured(),
-        provider_type: state.config_provider_type.clone(),
+        provider_type: state.config_provider_type.to_string(),
         model: state.config_model.clone(),
     })
 }
@@ -112,10 +112,11 @@ pub async fn configure_provider(
             .into_response();
     }
 
-    let provider_type = request
-        .provider_type
-        .as_deref()
-        .unwrap_or(&state.config_provider_type);
+    let provider_type = match request.provider_type.as_deref() {
+        Some("openai") => config::ProviderType::OpenAI,
+        Some("claude") => config::ProviderType::Claude,
+        _ => state.config_provider_type,
+    };
 
     let model = request.model.as_deref().unwrap_or(&state.config_model);
 
@@ -125,14 +126,14 @@ pub async fn configure_provider(
         .or(state.config_api_url.as_deref());
 
     let raw_provider: Arc<dyn Provider> = match provider_type {
-        "openai" => {
+        config::ProviderType::OpenAI => {
             let mut p = OpenAIProvider::new(&request.api_key, model);
             if let Some(url) = api_url {
                 p = p.with_api_url(url);
             }
             Arc::new(p)
         }
-        _ => Arc::new(ClaudeProvider::new(&request.api_key, model)),
+        config::ProviderType::Claude => Arc::new(ClaudeProvider::new(&request.api_key, model)),
     };
 
     // Wrap in RefreshableProvider for automatic OAuth token refresh
@@ -612,7 +613,7 @@ pub async fn get_settings(State(state): State<AppState>, headers: HeaderMap) -> 
             "provider": {
                 "auth_source": auth_source,
                 "configured": state.dynamic_provider.is_configured(),
-                "provider_type": state.config_provider_type,
+                "provider_type": state.config_provider_type.to_string(),
                 "model": state.config_model,
                 "api_url": state.config_api_url,
             },
@@ -620,7 +621,7 @@ pub async fn get_settings(State(state): State<AppState>, headers: HeaderMap) -> 
                 "connected": discord_state.connected,
                 "token_hint": discord_state.token_hint,
                 "token_configured": !discord_state.token_hint.is_empty(),
-                "filter": discord_state.filter,
+                "filter": discord_state.filter.to_string(),
                 "allowed_users": discord_state.allowed_users,
             },
             "federation": federation,
@@ -650,10 +651,11 @@ pub async fn update_provider(
         return e.into_response();
     }
 
-    let provider_type = request
-        .provider_type
-        .as_deref()
-        .unwrap_or(&state.config_provider_type);
+    let provider_type = match request.provider_type.as_deref() {
+        Some("openai") => config::ProviderType::OpenAI,
+        Some("claude") => config::ProviderType::Claude,
+        _ => state.config_provider_type,
+    };
 
     let model = request.model.as_deref().unwrap_or(&state.config_model);
 
@@ -676,14 +678,14 @@ pub async fn update_provider(
         }
 
         let raw_provider: Arc<dyn Provider> = match provider_type {
-            "openai" => {
+            config::ProviderType::OpenAI => {
                 let mut p = OpenAIProvider::new(api_key, model);
                 if let Some(url) = api_url {
                     p = p.with_api_url(url);
                 }
                 Arc::new(p)
             }
-            _ => Arc::new(ClaudeProvider::new(api_key, model)),
+            config::ProviderType::Claude => Arc::new(ClaudeProvider::new(api_key, model)),
         };
 
         // Wrap in RefreshableProvider for automatic OAuth token refresh
@@ -711,7 +713,7 @@ pub async fn update_provider(
         StatusCode::OK,
         Json(serde_json::json!({
             "success": true,
-            "provider_type": provider_type,
+            "provider_type": provider_type.to_string(),
             "model": model,
             "auth_source": "web_ui",
         })),
@@ -743,28 +745,11 @@ pub async fn update_discord(
     let current = state.discord_manager.state().await;
 
     let token = request.token.as_deref().filter(|t| !t.is_empty());
-    let filter = request.filter.as_deref().unwrap_or(&current.filter);
-    let allowed_users = request
-        .allowed_users
-        .as_ref()
-        .unwrap_or(&current.allowed_users);
-
-    // Validate filter
-    match filter {
-        "mentions" | "all" => {}
-        "dm" => {
-            if allowed_users.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(ErrorResponse {
-                        error: "allowed_users must not be empty when filter is \"dm\"".into(),
-                        code: "bad_request".into(),
-                    }),
-                )
-                    .into_response();
-            }
-        }
-        other => {
+    let filter = match request.filter.as_deref() {
+        Some("all") => config::DiscordFilter::All,
+        Some("dm") => config::DiscordFilter::Dm,
+        Some("mentions") => config::DiscordFilter::Mentions,
+        Some(other) => {
             return (
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
@@ -777,6 +762,23 @@ pub async fn update_discord(
             )
                 .into_response();
         }
+        None => current.filter,
+    };
+    let allowed_users = request
+        .allowed_users
+        .as_ref()
+        .unwrap_or(&current.allowed_users);
+
+    // Validate filter
+    if filter == config::DiscordFilter::Dm && allowed_users.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "allowed_users must not be empty when filter is \"dm\"".into(),
+                code: "bad_request".into(),
+            }),
+        )
+            .into_response();
     }
 
     // Save token to config file if provided
@@ -795,7 +797,8 @@ pub async fn update_discord(
     }
 
     // Save filter/allowed_users to config file
-    if let Err(e) = config::save_discord_settings(&state.config_path, filter, allowed_users) {
+    let filter_str = filter.to_string();
+    if let Err(e) = config::save_discord_settings(&state.config_path, &filter_str, allowed_users) {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -935,7 +938,7 @@ pub async fn reconnect_discord(
         .discord_manager
         .connect(
             &token,
-            &current.filter,
+            current.filter,
             current.allowed_users.clone(),
             &current.namespace_prefix,
         )

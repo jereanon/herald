@@ -48,7 +48,7 @@ pub struct AppState {
     /// The dynamic provider, allowing hot-swap at runtime via POST /api/config.
     pub dynamic_provider: Arc<DynamicProvider>,
     /// Default provider type from config (used when creating providers at runtime).
-    pub config_provider_type: String,
+    pub config_provider_type: crate::config::ProviderType,
     /// Default model from config.
     pub config_model: String,
     /// Custom API URL from config (for OpenAI-compatible endpoints).
