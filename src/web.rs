@@ -121,6 +121,12 @@ pub fn create_router(state: AppState) -> Router {
             put(handlers::set_session_directory),
         )
         .route("/sessions/{id}/chaos-mode", put(handlers::set_chaos_mode))
+        .route("/sessions/{id}/thread", get(handlers::get_session_thread))
+        .route("/sessions/{id}/undo", post(handlers::undo_session))
+        .route(
+            "/sessions/{id}/checkpoint",
+            post(handlers::set_session_checkpoint),
+        )
         .route("/fs/directories", get(handlers::list_directories))
         .route("/config", post(handlers::configure_provider))
         .route("/status", get(handlers::status))
