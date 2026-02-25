@@ -6,6 +6,7 @@ mod identity;
 mod logging;
 mod provider_wrapper;
 mod refreshable_provider;
+pub mod thread;
 mod tools;
 mod update;
 mod web;

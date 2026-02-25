@@ -203,6 +203,10 @@ pub struct SessionInfo {
     pub updated_at: String,
     pub working_directory: Option<String>,
     pub chaos_mode: bool,
+    /// Current thread state (idle, processing, etc.).
+    pub thread_state: String,
+    /// Number of completed conversational turns.
+    pub turn_count: usize,
     /// Instance name (populated when federation is enabled).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
@@ -242,6 +246,8 @@ pub async fn list_sessions(State(state): State<AppState>, headers: HeaderMap) ->
                         .get("chaos_mode")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
+                    let thread = crate::thread::thread_info(&session);
+                    let turn_count = crate::thread::parse_turns(&session).len();
                     let fed_service = state.federation_manager.service().await;
                     let instance = fed_service
                         .as_ref()
@@ -255,6 +261,8 @@ pub async fn list_sessions(State(state): State<AppState>, headers: HeaderMap) ->
                         updated_at: session.updated_at.to_rfc3339(),
                         working_directory,
                         chaos_mode,
+                        thread_state: thread.state.to_string(),
+                        turn_count,
                         instance,
                         remote: false,
                     });
@@ -297,6 +305,8 @@ pub async fn list_sessions(State(state): State<AppState>, headers: HeaderMap) ->
                                     updated_at: rs.updated_at,
                                     working_directory: None,
                                     chaos_mode: false,
+                                    thread_state: "idle".into(),
+                                    turn_count: 0,
                                     instance: Some(rs.instance),
                                     remote: true,
                                 });
@@ -333,6 +343,9 @@ pub struct SessionDetail {
     pub messages: Vec<MessageInfo>,
     pub created_at: String,
     pub updated_at: String,
+    /// Thread state and turn structure.
+    pub thread: crate::thread::ThreadInfo,
+    pub turns: Vec<crate::thread::Turn>,
 }
 
 #[derive(Serialize)]
@@ -393,6 +406,8 @@ pub async fn get_session(
                                     .collect(),
                                 created_at: remote_detail.created_at,
                                 updated_at: remote_detail.updated_at,
+                                thread: crate::thread::ThreadInfo::default(),
+                                turns: vec![],
                             };
                             return (StatusCode::OK, Json(detail)).into_response();
                         }
@@ -455,6 +470,8 @@ pub async fn get_session(
                     .collect(),
                 created_at: session.created_at.to_rfc3339(),
                 updated_at: session.updated_at.to_rfc3339(),
+                thread: crate::thread::thread_info(&session),
+                turns: crate::thread::parse_turns(&session),
             };
             (StatusCode::OK, Json(detail)).into_response()
         }
@@ -2544,6 +2561,168 @@ pub async fn install_update(
                 "restart_required": false,
                 "message": e,
             })),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/sessions/:id/thread — Thread state and turns
+// ---------------------------------------------------------------------------
+
+pub async fn get_session_thread(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let ns = Namespace::parse(&id);
+    match state.store.load(&ns).await {
+        Ok(Some(session)) => {
+            let view = crate::thread::SessionView::from_session(&session);
+            (StatusCode::OK, Json(view)).into_response()
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("session not found: {}", id),
+                code: "not_found".into(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "store_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/sessions/:id/undo — Undo to last checkpoint
+// ---------------------------------------------------------------------------
+
+pub async fn undo_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let ns = Namespace::parse(&id);
+    match state.store.load(&ns).await {
+        Ok(Some(mut session)) => {
+            let undone = crate::thread::undo_to_checkpoint(&mut session);
+            if undone {
+                if let Err(e) = state.store.save(&session).await {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: e.to_string(),
+                            code: "store_error".into(),
+                        }),
+                    )
+                        .into_response();
+                }
+                // Notify WS clients
+                let _ = state.session_events.send(ns.key());
+
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "success": true,
+                        "message_count": session.messages.len(),
+                    })),
+                )
+                    .into_response()
+            } else {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "no checkpoint to undo to".into(),
+                        code: "no_checkpoint".into(),
+                    }),
+                )
+                    .into_response()
+            }
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("session not found: {}", id),
+                code: "not_found".into(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "store_error".into(),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/sessions/:id/checkpoint — Set a checkpoint for undo
+// ---------------------------------------------------------------------------
+
+pub async fn set_session_checkpoint(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = check_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let ns = Namespace::parse(&id);
+    match state.store.load(&ns).await {
+        Ok(Some(mut session)) => {
+            crate::thread::set_checkpoint(&mut session);
+            if let Err(e) = state.store.save(&session).await {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: e.to_string(),
+                        code: "store_error".into(),
+                    }),
+                )
+                    .into_response();
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "checkpoint_idx": session.messages.len(),
+                })),
+            )
+                .into_response()
+        }
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("session not found: {}", id),
+                code: "not_found".into(),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+                code: "store_error".into(),
+            }),
         )
             .into_response(),
     }

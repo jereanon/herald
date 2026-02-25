@@ -6,7 +6,7 @@ description = "A self-hostable AI assistant with web UI, Discord bot, scheduled 
 license = "MIT"
 
 [dependencies]
-orra = { git = "https://github.com/jereanon/orra.git", rev = "e74c8f3", features = [
+orra = { git = "https://github.com/jereanon/orra.git", rev = "a5b3624", features = [
     "claude",
     "openai",
     "discord",
