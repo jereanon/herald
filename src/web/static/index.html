@@ -1780,6 +1780,16 @@
                             <label for="cronAutoApprove" style="cursor:pointer;margin:0;font-weight:normal">Auto-approve tools</label>
                         </div>
                     </div>
+                    <div class="cron-form-row">
+                        <div class="settings-field">
+                            <label>Cooldown (seconds)</label>
+                            <input type="number" id="cronCooldown" placeholder="none" min="0">
+                        </div>
+                        <div class="settings-field">
+                            <label>Max Concurrent</label>
+                            <input type="number" id="cronMaxConcurrent" placeholder="unlimited" min="1">
+                        </div>
+                    </div>
                     <div class="settings-actions">
                         <button class="settings-btn" onclick="createCronJob()">Create</button>
                         <button class="settings-btn-secondary" onclick="toggleCronForm()">Cancel</button>
@@ -4269,6 +4279,8 @@
                         <span>Channel: ${escapeHtml(resolveChannelName(job.namespace))}</span>
                         ${job.max_turns ? `<span>Max turns: ${job.max_turns}</span>` : ''}
                         ${job.auto_approve ? '<span>Auto-approve</span>' : ''}
+                        ${job.cooldown_secs ? `<span>Cooldown: ${job.cooldown_secs}s</span>` : ''}
+                        ${job.max_concurrent ? `<span>Max concurrent: ${job.max_concurrent}</span>` : ''}
                         <span>Next: ${nextRun}</span>
                         <span>Runs: ${job.run_count}</span>
                     </div>
@@ -4399,6 +4411,16 @@
                         <label for="editCronAutoApprove-${id}" style="cursor:pointer;margin:0;font-weight:normal">Auto-approve tools</label>
                     </div>
                 </div>
+                <div class="cron-form-row">
+                    <div class="settings-field">
+                        <label>Cooldown (seconds) <span style="font-weight:normal;color:var(--text-secondary);font-size:12px">(min time between fires)</span></label>
+                        <input type="number" id="editCronCooldown-${id}" value="${job.cooldown_secs || ''}" placeholder="none" min="0">
+                    </div>
+                    <div class="settings-field">
+                        <label>Max Concurrent <span style="font-weight:normal;color:var(--text-secondary);font-size:12px">(simultaneous runs)</span></label>
+                        <input type="number" id="editCronMaxConcurrent-${id}" value="${job.max_concurrent || ''}" placeholder="unlimited" min="1">
+                    </div>
+                </div>
                 <div class="settings-actions">
                     <button class="settings-btn" onclick="saveCronJob('${id}')">Save</button>
                     <button class="settings-btn-secondary" onclick="cancelCronEdit('${id}')">Cancel</button>
@@ -4474,9 +4496,13 @@
 
                 const editMaxTurns = parseInt(document.getElementById(`editCronMaxTurns-${id}`).value, 10);
                 const editAutoApprove = document.getElementById(`editCronAutoApprove-${id}`).checked;
+                const editCooldown = parseInt(document.getElementById(`editCronCooldown-${id}`).value, 10);
+                const editMaxConcurrent = parseInt(document.getElementById(`editCronMaxConcurrent-${id}`).value, 10);
                 const updateBody = { name, schedule, payload, namespace: namespace || 'web', model: editModel };
                 if (!isNaN(editMaxTurns) && editMaxTurns > 0) updateBody.max_turns = editMaxTurns;
                 if (editAutoApprove) updateBody.auto_approve = true;
+                if (!isNaN(editCooldown) && editCooldown > 0) updateBody.cooldown_secs = editCooldown;
+                if (!isNaN(editMaxConcurrent) && editMaxConcurrent > 0) updateBody.max_concurrent = editMaxConcurrent;
 
                 const resp = await fetch(`/api/cron/${encodeURIComponent(id)}`, {
                     method: 'PUT',
@@ -4584,6 +4610,10 @@
                 const maxTurns = parseInt(document.getElementById('cronMaxTurns').value, 10);
                 if (!isNaN(maxTurns) && maxTurns > 0) createBody.max_turns = maxTurns;
                 if (document.getElementById('cronAutoApprove').checked) createBody.auto_approve = true;
+                const cooldown = parseInt(document.getElementById('cronCooldown').value, 10);
+                if (!isNaN(cooldown) && cooldown > 0) createBody.cooldown_secs = cooldown;
+                const maxConcurrent = parseInt(document.getElementById('cronMaxConcurrent').value, 10);
+                if (!isNaN(maxConcurrent) && maxConcurrent > 0) createBody.max_concurrent = maxConcurrent;
 
                 const resp = await fetch('/api/cron', {
                     method: 'POST',
