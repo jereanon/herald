@@ -243,10 +243,41 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                         state.interactive_count.fetch_add(1, Ordering::Relaxed);
                         let _guard = InteractiveGuard(state.interactive_count.clone());
 
+                        // Transition thread state → Processing
+                        let thread_store = state.store.clone();
+                        let thread_ns = ns.clone();
+                        {
+                            if let Ok(Some(mut session)) = thread_store.load(&thread_ns).await {
+                                crate::thread::transition(&mut session, crate::thread::ThreadState::Processing);
+                                crate::thread::set_checkpoint(&mut session);
+                                let _ = thread_store.save(&session).await;
+                            }
+                        }
+
+                        let done_store = thread_store.clone();
+                        let done_ns = thread_ns.clone();
                         tokio::spawn(async move {
                             // _guard is moved into this task; its Drop decrements the counter.
                             let _guard = _guard;
                             hlog!("[ws] runtime task started: ns={}", ns_key_clone);
+
+                            // Helper: transition thread state after completion
+                            let update_thread_state = |store: Arc<dyn orra::store::SessionStore>,
+                                                        ns: Namespace,
+                                                        state: crate::thread::ThreadState| {
+                                async move {
+                                    if let Ok(Some(mut session)) = store.load(&ns).await {
+                                        crate::thread::transition(&mut session, state);
+                                        if state == crate::thread::ThreadState::Completed {
+                                            let mut info = crate::thread::thread_info(&session);
+                                            info.turn_count = crate::thread::parse_turns(&session).len();
+                                            crate::thread::set_thread_info(&mut session, &info);
+                                        }
+                                        let _ = store.save(&session).await;
+                                    }
+                                }
+                            };
+
                             // Try streaming first, fall back to non-streaming
                             match runtime
                                 .run_streaming_with_model(&ns, Message::user(&cleaned_message), model.clone())
@@ -270,6 +301,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                                     result.turns.len(),
                                                     result.total_usage.total_tokens()
                                                 );
+                                                update_thread_state(
+                                                    done_store.clone(), done_ns.clone(),
+                                                    crate::thread::ThreadState::Completed,
+                                                ).await;
                                                 WsMessage::Response {
                                                     message: result.final_message.content.clone(),
                                                     namespace: ns_key_clone.clone(),
@@ -283,6 +318,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                             }
                                             RuntimeStreamEvent::Error(err) => {
                                                 hlog!("[ws] stream error: ns={}, err={}", ns_key_clone, err);
+                                                update_thread_state(
+                                                    done_store.clone(), done_ns.clone(),
+                                                    crate::thread::ThreadState::Interrupted,
+                                                ).await;
                                                 WsMessage::Error { error: err }
                                             }
                                             _ => continue,
@@ -304,6 +343,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                                 result.turns.len(),
                                                 result.total_usage.total_tokens()
                                             );
+                                            update_thread_state(
+                                                done_store.clone(), done_ns.clone(),
+                                                crate::thread::ThreadState::Completed,
+                                            ).await;
                                             WsMessage::Response {
                                                 message: result.final_message.content.clone(),
                                                 namespace: ns_key_clone,
@@ -317,6 +360,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                         }
                                         Err(e) => {
                                             hlog!("[ws] non-stream error: ns={}, err={}", ns_key_clone, e);
+                                            update_thread_state(
+                                                done_store.clone(), done_ns.clone(),
+                                                crate::thread::ThreadState::Interrupted,
+                                            ).await;
                                             WsMessage::Error {
                                                 error: e.to_string(),
                                             }
