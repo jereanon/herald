@@ -180,6 +180,9 @@ pub struct ProviderConfig {
     pub api_key: Option<String>,
     #[serde(default = "default_model")]
     pub model: String,
+    /// Optional cheap/fast model for lightweight tasks (e.g. cron triage).
+    /// Falls back to `model` if not set.
+    pub cheap_model: Option<String>,
     #[serde(default = "default_max_tokens")]
     pub max_tokens: u32,
     #[serde(default = "default_temperature")]
@@ -196,6 +199,7 @@ impl Default for ProviderConfig {
         Self {
             api_key: None,
             model: default_model(),
+            cheap_model: None,
             max_tokens: default_max_tokens(),
             temperature: default_temperature(),
             provider_type: default_provider_type(),
