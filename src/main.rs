@@ -602,6 +602,7 @@ async fn main() {
         let events_tx = session_events_tx.clone();
         let cron_interactive = interactive_count.clone();
         let cron_store = store.clone();
+        let cron_cheap_model = config.provider.cheap_model.clone();
         let cron_callback: orra::cron::service::CronCallback = Arc::new(move |job| {
             let rts = cron_runtimes.clone();
             let fallback_rt = cron_fallback_rt.clone();
@@ -609,6 +610,7 @@ async fn main() {
             let events_tx = events_tx.clone();
             let interactive = cron_interactive.clone();
             let store = cron_store.clone();
+            let cheap_model = cron_cheap_model.clone();
             tokio::spawn(async move {
                 let raw_prompt = match &job.payload {
                     CronPayload::AgentTurn { prompt } => prompt.clone(),
@@ -692,7 +694,12 @@ async fn main() {
                     ns.key()
                 );
                 let ns_key = ns.key();
-                let model = job.model.clone();
+                // For lightweight jobs, prefer cheap_model if configured
+                let model = if job.lightweight.unwrap_or(false) {
+                    job.model.clone().or(cheap_model.clone())
+                } else {
+                    job.model.clone()
+                };
                 let max_turns = job.max_turns;
                 let is_lightweight = job.lightweight.unwrap_or(false);
 
