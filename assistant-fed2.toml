@@ -1,0 +1,28 @@
+data_dir = "./data-beta"
+
+[gateway]
+enabled = true
+host = "0.0.0.0"
+port = 8090
+
+[tools]
+exec = true
+
+[[agents]]
+name = "ResearchBot"
+personality = "thorough researcher who excels at finding and synthesizing information"
+
+[[agents]]
+name = "WriterBot"
+personality = "creative writer who crafts clear, engaging prose"
+
+[federation]
+enabled = true
+instance_name = "herald-beta"
+shared_secret = "test-federation-secret"
+mdns_enabled = true
+port = 8092
+
+[[federation.peers]]
+name = "herald-alpha"
+url = "http://localhost:8082"

@@ -1779,6 +1779,10 @@
                             <input type="checkbox" id="cronAutoApprove" style="accent-color:var(--accent);cursor:pointer;width:16px;height:16px">
                             <label for="cronAutoApprove" style="cursor:pointer;margin:0;font-weight:normal">Auto-approve tools</label>
                         </div>
+                        <div class="settings-field" style="display:flex;align-items:center;gap:8px;padding-top:22px">
+                            <input type="checkbox" id="cronLightweight" style="accent-color:var(--accent);cursor:pointer;width:16px;height:16px">
+                            <label for="cronLightweight" style="cursor:pointer;margin:0;font-weight:normal">Lightweight (no tools)</label>
+                        </div>
                     </div>
                     <div class="cron-form-row">
                         <div class="settings-field">
@@ -4281,6 +4285,7 @@
                         ${job.auto_approve ? '<span>Auto-approve</span>' : ''}
                         ${job.cooldown_secs ? `<span>Cooldown: ${job.cooldown_secs}s</span>` : ''}
                         ${job.max_concurrent ? `<span>Max concurrent: ${job.max_concurrent}</span>` : ''}
+                        ${job.lightweight ? '<span>Lightweight</span>' : ''}
                         <span>Next: ${nextRun}</span>
                         <span>Runs: ${job.run_count}</span>
                     </div>
@@ -4410,6 +4415,10 @@
                         <input type="checkbox" id="editCronAutoApprove-${id}" ${job.auto_approve ? 'checked' : ''} style="accent-color:var(--accent);cursor:pointer;width:16px;height:16px">
                         <label for="editCronAutoApprove-${id}" style="cursor:pointer;margin:0;font-weight:normal">Auto-approve tools</label>
                     </div>
+                    <div class="settings-field" style="display:flex;align-items:center;gap:8px;padding-top:22px">
+                        <input type="checkbox" id="editCronLightweight-${id}" ${job.lightweight ? 'checked' : ''} style="accent-color:var(--accent);cursor:pointer;width:16px;height:16px">
+                        <label for="editCronLightweight-${id}" style="cursor:pointer;margin:0;font-weight:normal">Lightweight (no tools)</label>
+                    </div>
                 </div>
                 <div class="cron-form-row">
                     <div class="settings-field">
@@ -4503,6 +4512,8 @@
                 if (editAutoApprove) updateBody.auto_approve = true;
                 if (!isNaN(editCooldown) && editCooldown > 0) updateBody.cooldown_secs = editCooldown;
                 if (!isNaN(editMaxConcurrent) && editMaxConcurrent > 0) updateBody.max_concurrent = editMaxConcurrent;
+                const editLightweight = document.getElementById(`editCronLightweight-${id}`).checked;
+                if (editLightweight) updateBody.lightweight = true;
 
                 const resp = await fetch(`/api/cron/${encodeURIComponent(id)}`, {
                     method: 'PUT',
@@ -4614,6 +4625,7 @@
                 if (!isNaN(cooldown) && cooldown > 0) createBody.cooldown_secs = cooldown;
                 const maxConcurrent = parseInt(document.getElementById('cronMaxConcurrent').value, 10);
                 if (!isNaN(maxConcurrent) && maxConcurrent > 0) createBody.max_concurrent = maxConcurrent;
+                if (document.getElementById('cronLightweight').checked) createBody.lightweight = true;
 
                 const resp = await fetch('/api/cron', {
                     method: 'POST',
