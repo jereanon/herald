@@ -189,6 +189,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                         source_peer: instance_name,
                                         source_agent: None,
                                         namespace: format!("federation:web:{}", uuid::Uuid::new_v4()),
+                                        tool_callback_url: None,
+                                        tool_callback_secret: None,
                                     };
 
                                     let ws_msg = match crate::federation::client::PeerClient::relay_message(
